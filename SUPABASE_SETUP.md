@@ -19,7 +19,7 @@ démonstration : elles ne sont pas encore synchronisées avec la base.
    ces deux variables (voir `.env.example`), puis redémarrez `npm run dev`.
 4. Dans le SQL Editor de Supabase, exécutez les scripts de
    `supabase/sql-editor/` un par un et dans cet ordre :
-   `01_schema.sql`, `02_auth_and_helpers.sql`, `03_rls_policies.sql`,
+   `01_schema.sqls, `02_auth_and_helpers.sql`, `03_rls_policies.sql`,
    `04_search_and_permissions.sql`, puis `05_seed_data.sql`. Enregistrez
    chaque snippet avec **Save** (ou `Ctrl+S`) avant de le lancer, puis attendez
    sa réussite avant de passer au suivant. N'exécutez pas ces scripts si la
