@@ -1003,14 +1003,19 @@ function LiveAdminPage() {
       supabase.from('categories').select('id, name, description').order('name'),
       supabase.from('skills').select('id, category_id, name').order('name'),
     ]);
-    if (accountError || professionalError || categoryError || skillError) {
-      setError(accountError?.code === 'PGRST202' || accountError?.message.includes('admin_list_accounts')
-        ? 'La fonction SQL admin_list_accounts manque dans Supabase. Exécutez supabase/sql-editor/06_admin_accounts.sql.'
-        : professionalError?.code === 'PGRST202' || professionalError?.message.includes('admin_list_professionals')
-          ? 'La liste des fiches détaillées manque dans Supabase. Exécutez supabase/sql-editor/08_admin_professional_details.sql, puis actualisez.'
-          : categoryError || skillError
-            ? 'Impossible de lire le catalogue de métiers. Vérifiez les politiques RLS des catégories et compétences.'
-            : accountError?.message ?? professionalError?.message ?? 'Impossible de charger les données administrateur.');
+    const loadErrors: string[] = [];
+    if (accountError) {
+      loadErrors.push(accountError.code === 'PGRST202' || accountError.message.includes('admin_list_accounts')
+        ? 'La liste des comptes manque dans Supabase. Exécutez supabase/sql-editor/06_admin_accounts.sql.'
+        : `Comptes : ${accountError.message}`);
+    } else {
+      setAccounts((accountRows ?? []) as AdminAccountRecord[]);
+    }
+
+    if (professionalError) {
+      loadErrors.push(professionalError.code === 'PGRST202' || professionalError.message.includes('admin_list_professionals')
+        ? 'La liste des fiches détaillées manque dans Supabase. Exécutez supabase/sql-editor/08_admin_professional_details.sql.'
+        : `Fiches professionnelles : ${professionalError.message}`);
     } else {
       const proRows = (professionalRows ?? []) as Omit<AdminProfessionalRecord,'avatar_path'|'portfolio_paths'>[];
       const ids = proRows.map(row=>row.profile_id);
@@ -1018,17 +1023,22 @@ function LiveAdminPage() {
         ? await supabase.from('professionals').select('profile_id, avatar_path, portfolio_paths').in('profile_id',ids)
         : { data: [], error: null };
       if (mediaError) {
-        setError(mediaError.message.includes('avatar_path') || mediaError.message.includes('portfolio_paths')
-          ? 'Le stockage des photos n’est pas installé dans Supabase. Exécutez supabase/sql-editor/09_professional_media.sql.'
-          : mediaError.message);
+        loadErrors.push(mediaError.message.includes('avatar_path') || mediaError.message.includes('portfolio_paths')
+          ? 'Les photos de profils ne sont pas installées. Exécutez supabase/sql-editor/09_professional_media.sql.'
+          : `Photos professionnelles : ${mediaError.message}`);
       }
       const mediaEntries = (mediaRows??[]) as {profile_id:string;avatar_path:string|null;portfolio_paths:string[]|null}[];
       const mediaById = new Map(mediaEntries.map(row=>[row.profile_id,row] as const));
-      setAccounts((accountRows ?? []) as AdminAccountRecord[]);
       setProfessionals(proRows.map(row=>({...row,avatar_path:mediaById.get(row.profile_id)?.avatar_path??null,portfolio_paths:mediaById.get(row.profile_id)?.portfolio_paths??[]})) as AdminProfessionalRecord[]);
+    }
+
+    if (categoryError || skillError) {
+      loadErrors.push('Le catalogue de métiers ou de compétences ne peut pas être chargé. Vérifiez ses politiques RLS dans Supabase.');
+    } else {
       setCategories((categoryRows??[]) as AdminCategoryRecord[]);
       setSkills((skillRows??[]) as AdminSkillRecord[]);
     }
+    setError(loadErrors.join(' '));
     setLoading(false);
   };
 
