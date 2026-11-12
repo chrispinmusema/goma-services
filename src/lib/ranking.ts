@@ -131,7 +131,7 @@ export function rankMatches(
       if (reliability !== null) {
         criteria.push({ score: reliability, weight: SEARCH_WEIGHTS.reliability, label: 'Fiabilité' });
         reasons.push(
-          `Fiabilité lissée : ${Math.round(reliability * 100)}/100 (${SEARCH_WEIGHTS.reliability * 100} %, avis fictifs en démo)`,
+          `Fiabilité lissée : ${Math.round(reliability * 100)}/100 (${SEARCH_WEIGHTS.reliability * 100} %, d’après les avis publiés)`,
         );
       } else {
         reasons.push('Fiabilité : aucun avis disponible · poids redistribué');

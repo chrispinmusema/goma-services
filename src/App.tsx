@@ -7,7 +7,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { ProfessionalMap } from '@/components/professional-map'; 
 import NotFound from '@/pages/not-found';
 import { Link, Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
-import { ArrowLeft, ArrowRight, BadgeCheck, Bookmark, CarFront, Check, ChevronDown, Clock3, Compass, Hammer, Heart, House, Info, Laptop, Link2, MapPin, Menu, Navigation, Phone, Plus, Search, ShieldCheck, SlidersHorizontal, Smartphone, Star, Trash2, UserRound, Wrench, X, Zap } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BadgeCheck, Bookmark, CarFront, Check, ChevronDown, Clock3, Compass, Hammer, Heart, House, Info, Laptop, Link2, LogOut, MapPin, Menu, Navigation, Phone, Plus, Search, ShieldCheck, SlidersHorizontal, Smartphone, Star, Trash2, UserRound, Wrench, X, Zap } from 'lucide-react';
 import { type Category, type DemoState, type Professional, type Profile, loadDemo, saveDemo, neighborhoods } from './lib/demo-store';
 import { rankMatches, type RankedProfessional } from './lib/ranking';
 import { supabase } from './lib/supabase';
@@ -52,8 +52,40 @@ function Router() {
 
 function Shell({ children }: { children: ReactNode }) {
   const [menu, setMenu] = useState(false);
-  const [location] = useLocation();
-  const mobileNavLinks = [...navLinks, ['/espace/client', 'Mon espace'], ['/connexion', 'Connexion'], ['/inscription', 'Inscrire mon activité']];
+  const [location, setLocation] = useLocation();
+  const [account, setAccount] = useState<{ id: string; email: string; name: string; role: string } | null>(null);
+  const mobileNavLinks = [...navLinks, [account?.role === 'professional' ? '/espace/pro' : account?.role === 'admin' ? '/admin' : '/espace/client', 'Mon espace'], ...(!account ? [['/connexion', 'Connexion'], ['/inscription', 'Inscrire mon activité']] : [])];
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    const loadAccount = async (user: { id: string; email?: string; user_metadata?: Record<string, unknown> } | null) => {
+      if (!user) { if (active) setAccount(null); return; }
+      const { data: profile } = await supabase!.from('profiles').select('display_name, role').eq('id', user.id).maybeSingle();
+      if (!active) return;
+      setAccount({
+        id: user.id,
+        email: user.email ?? '',
+        name: profile?.display_name || (typeof user.user_metadata?.display_name === 'string' ? user.user_metadata.display_name : user.email ?? 'Mon compte'),
+        role: profile?.role ?? '',
+      });
+    };
+    void supabase.auth.getUser().then(({ data }) => loadAccount(data.user));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      const user = session?.user ?? null;
+      if (!user) { setAccount(null); return; }
+      window.setTimeout(() => { void loadAccount(user); }, 0);
+    });
+    return () => { active = false; subscription.unsubscribe(); };
+  }, []);
+  const signOut = async () => {
+    if (!supabase) return;
+    const { error } = await supabase.auth.signOut();
+    if (error) return;
+    setAccount(null);
+    setMenu(false);
+    setLocation('/');
+  };
+  const roleLabel = account?.role === 'professional' ? 'Professionnel' : account?.role === 'admin' ? 'Administrateur' : account?.role === 'client' ? 'Client' : 'Compte';
   return <div className="min-h-[100dvh] bg-[#f4f6f7] text-[#1d2e42]">
     <header className="sticky top-0 z-30 border-b border-[#e0e6e9] bg-[#fbfcfc]/95 backdrop-blur">
       <div className="mx-auto grid h-[56px] max-w-[1690px] grid-cols-[1fr_auto] items-center px-4 sm:px-6 xl:h-[60px] xl:grid-cols-[1fr_auto_1fr] xl:px-[4.2%]">
@@ -65,8 +97,8 @@ function Shell({ children }: { children: ReactNode }) {
           {navLinks.map(([href,label]) => <Link key={href} href={href} className={href === '/' ? 'inline-flex items-center gap-2 pb-2 text-[12px] font-extrabold text-[#174572] transition-colors hover:text-[#0d5ebd]' : 'px-3 pb-2 pt-1 text-[12px] font-semibold text-[#24415e] transition-colors hover:text-[#b77c20]'}>{href === '/' && <House size={15} fill="currentColor"/>}{label}</Link>)}
         </nav>
         <div className="hidden items-center justify-self-end gap-2.5 xl:flex">
-          <Link href="/connexion" className="inline-flex items-center gap-2 rounded-full border border-[#dbe9ff] bg-white px-4 py-2.5 text-[12px] font-bold text-[#11487f] shadow-[0_1px_0_rgba(13,94,189,0.08),0_3px_12px_rgba(13,94,189,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbff] hover:shadow-[0_1px_0_rgba(13,94,189,0.08),0_6px_18px_rgba(13,94,189,0.1)]"><Link2 size={15} className="text-[#0d5ebd]"/>Se connecter</Link>
-          <Link href="/inscription" className="inline-flex items-center gap-2.5 rounded-full bg-[#0d5ebd] px-4 py-2.5 text-[12px] font-extrabold text-white shadow-[0_8px_18px_rgba(13,94,189,0.2)] ring-1 ring-[#0d5ebd]/15 transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#0b4fa7] hover:shadow-[0_10px_22px_rgba(13,94,189,0.25)]"><UserRound size={15} className="text-white"/>Créer un compte</Link>
+          {account ? <><Link href={account.role === 'professional' ? '/espace/pro' : account.role === 'admin' ? '/admin' : '/espace/client'} className="flex max-w-[220px] items-center gap-2 rounded-full border border-[#dbe9ff] bg-white px-3.5 py-2 text-left shadow-sm hover:bg-[#f7fbff]"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#eaf2fb] text-[#0d5ebd]"><UserRound size={15}/></span><span className="min-w-0"><span className="block truncate text-[11px] font-extrabold text-[#183451]">{account.name}</span><span className="block text-[10px] font-semibold text-[#0d5ebd]">Compte {roleLabel}</span></span></Link><button onClick={signOut} className="inline-flex items-center gap-2 rounded-full border border-[#e2e8ed] bg-white px-3.5 py-2.5 text-[11px] font-bold text-[#405268] transition hover:bg-[#f4f7f9]"><LogOut size={14}/>Se déconnecter</button></> : <><Link href="/connexion" className="inline-flex items-center gap-2 rounded-full border border-[#dbe9ff] bg-white px-4 py-2.5 text-[12px] font-bold text-[#11487f] shadow-[0_1px_0_rgba(13,94,189,0.08),0_3px_12px_rgba(13,94,189,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbff] hover:shadow-[0_1px_0_rgba(13,94,189,0.08),0_6px_18px_rgba(13,94,189,0.1)]"><Link2 size={15} className="text-[#0d5ebd]"/>Se connecter</Link>
+          <Link href="/inscription" className="inline-flex items-center gap-2.5 rounded-full bg-[#0d5ebd] px-4 py-2.5 text-[12px] font-extrabold text-white shadow-[0_8px_18px_rgba(13,94,189,0.2)] ring-1 ring-[#0d5ebd]/15 transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#0b4fa7] hover:shadow-[0_10px_22px_rgba(13,94,189,0.25)]"><UserRound size={15} className="text-white"/>Créer un compte</Link></>}
         </div>
         <button className="inline-flex h-10 w-10 items-center justify-center justify-self-end rounded-xl text-[#24415e] transition-colors hover:bg-[#edf4fc] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f3b52f] xl:hidden" onClick={() => setMenu(!menu)} aria-label={menu ? 'Fermer le menu' : 'Ouvrir le menu'} aria-expanded={menu} aria-controls="mobile-navigation" data-testid="button-mobile-menu">{menu ? <X size={19}/> : <Menu size={19}/>}</button>
       </div>
@@ -83,6 +115,7 @@ function Shell({ children }: { children: ReactNode }) {
           </div>
           <div className="mt-3 grid gap-2 border-t border-[#e7ecee] pt-3">
             {mobileNavLinks.slice(navLinks.length).map(([href, label]) => <Link onClick={() => setMenu(false)} key={href} href={href} aria-current={location === href ? 'page' : undefined} className={href === '/inscription' ? 'flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#10385e] px-4 text-sm font-bold text-white transition-colors hover:bg-[#1b4c78] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f3b52f]' : `flex min-h-11 items-center rounded-xl px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f3b52f] ${location === href ? 'bg-[#edf4fc] text-[#174572]' : 'text-[#405268] hover:bg-[#f1f5f7] hover:text-[#174572]'}`}>{label}</Link>)}
+            {account && <div className="rounded-xl border border-[#dbe9ff] bg-[#f7fbff] px-4 py-3"><div className="flex items-center gap-2 text-xs font-extrabold text-[#183451]"><UserRound size={15} className="text-[#0d5ebd]"/>{account.name}</div><div className="mt-1 text-[11px] font-semibold text-[#0d5ebd]">Compte {roleLabel}{account.email ? ` · ${account.email}` : ''}</div><button onClick={signOut} className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-[#dfe5e8] bg-white text-sm font-bold text-[#405268]"><LogOut size={15}/>Se déconnecter</button></div>}
           </div>
         </nav>
       </div>}
@@ -90,7 +123,7 @@ function Shell({ children }: { children: ReactNode }) {
     <main>{children}</main>
     {location !== '/connexion' && location !== '/inscription' && <footer className="mt-16 bg-[#183451] text-white">
       <div className="mx-auto grid max-w-[1240px] gap-8 px-5 py-10 sm:grid-cols-[1fr_auto] sm:px-7">
-        <div><div className="font-serif text-xl font-extrabold">Kazi<span className="text-[#f0bf62]">Goma</span></div><p className="mt-2 max-w-md text-sm leading-6 text-[#cad5df]">Les compétences de Goma, à portée de main. Une mise en relation locale en version démo.</p><p className="mt-3 text-[11px] text-[#aab9c6]">Profils, avis et statistiques présentés ici sont fictifs.</p></div>
+        <div><div className="font-serif text-xl font-extrabold">Kazi<span className="text-[#f0bf62]">Goma</span></div><p className="mt-2 max-w-md text-sm leading-6 text-[#cad5df]">Les compétences de Goma, à portée de main. Une mise en relation locale.</p></div>
         <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-[#d5dfe6]"><Link href="/">Trouver un pro</Link><Link href="/fonctionnement">Fonctionnement</Link><Link href="/contact">Contact</Link></div>
       </div>
     </footer>}
@@ -244,10 +277,10 @@ function HomePage() {
           <div className="flex rounded-lg border border-[#dfe5e7] bg-white p-1"><button onClick={()=>setView('list')} className={`rounded-md px-3 py-1.5 text-xs font-bold ${view==='list'?'bg-[#183451] text-white':'text-[#526578]'}`}>Liste</button><button onClick={()=>setView('map')} className={`rounded-md px-3 py-1.5 text-xs font-bold ${view==='map'?'bg-[#183451] text-white':'text-[#526578]'}`}>Carte</button></div>
         </div>
         {view==='map' && <ProfessionalMap professionals={results.map(({ profile, pro }) => ({ profileId: pro.profileId, name: profile.name, neighborhood: profile.neighborhood, latitude: pro.latitude, longitude: pro.longitude }))}/>}
-        {!results.length ? <div className="rounded-2xl border border-dashed border-[#cbd5da] bg-white px-5 py-14 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#edf2f4] text-[#35546d]"><Search size={21}/></div><h3 className="mt-4 font-serif text-lg font-bold text-[#183451]">Aucun résultat pour le moment</h3><p className="mx-auto mt-1 max-w-sm text-sm text-[#74818b]">Aucun professionnel ne correspond à cette catégorie.</p><button onClick={()=>setTerm('')} className="mt-4 rounded-lg border border-[#dbe2e5] px-4 py-2 text-xs font-bold text-[#284b68]">Afficher toutes les catégories</button></div> :
+        {!results.length ? <div className="rounded-2xl border border-dashed border-[#cbd5da] bg-white px-5 py-14 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#edf2f4] text-[#35546d]"><Search size={21}/></div><h3 className="mt-4 font-serif text-lg font-bold text-[#183451]">Aucun professionnel disponible pour le moment</h3><p className="mx-auto mt-1 max-w-sm text-sm text-[#74818b]">Les profils réels apparaîtront ici lorsqu’ils auront été ajoutés et validés.</p><button onClick={()=>setTerm('')} className="mt-4 rounded-lg border border-[#dbe2e5] px-4 py-2 text-xs font-bold text-[#284b68]">Afficher toutes les catégories</button></div> :
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{results.map((item,i)=><ProfessionalCard key={item.pro.profileId} item={item} rank={i+1} saved={data.favorites.some(f=>f.professionalId===item.pro.profileId)} onFavorite={()=>toggleFavorite(item.pro.profileId)}/>)}</div>}
       </section>
-      <div className="mb-5"><DemoNote>Classement indicatif calculé dans cette démo : compétences 40 %, proximité 25 %, fiabilité 20 % si des avis existent, disponibilité 15 % si elle est renseignée. Les critères absents sont redistribués. Aucun avis ni score n’a été vérifié.</DemoNote></div>
+      <p className="mb-5 text-center text-xs text-[#778591]">Les profils seront affichés ici après leur ajout et leur validation.</p>
     </div>
   </div>;
 }
@@ -292,7 +325,7 @@ function ProfessionalPage({ params }: { params: { id: string } }) {
   const [reportSaved, setReportSaved] = useState(false);
   const pro = data.professionals.find(p=>p.profileId===params.id);
   const profile = data.profiles.find(p=>p.id===params.id);
-  if(!pro||!profile||pro.suspended) return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle title="Profil introuvable" text="Ce professionnel n’est pas disponible dans la démo."/><Link href="/" className="font-bold text-[#294d6a]">Retour à la recherche</Link></div>;
+  if(!pro||!profile||pro.suspended) return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle title="Profil introuvable" text="Ce professionnel n’est pas disponible."/><Link href="/" className="font-bold text-[#294d6a]">Retour à la recherche</Link></div>;
   const favorite=data.favorites.some(f=>f.professionalId===pro.profileId);
   const submit=(e:FormEvent)=>{e.preventDefault();if(description.trim().length<12){setError('Décrivez votre besoin en au moins 12 caractères.');return;}if(!name.trim()){setError('Indiquez votre nom pour la demande démo.');return;}setData(prev=>({...prev,requests:[{id:`r${Date.now()}`,clientName:name.trim(),professionalId:pro.profileId,description:description.trim(),neighborhood,status:'En attente',createdAt:new Date().toLocaleDateString('fr-FR')},...prev.requests]}));setSent(true);setError('');};
   return <div className="page-enter mx-auto max-w-[1080px] px-4 py-8 sm:px-7 sm:py-12"><Link href="/" className="mb-6 inline-flex items-center gap-2 text-xs font-bold text-[#617383]"><ArrowLeft size={15}/> Retour aux résultats</Link>
@@ -336,7 +369,6 @@ function Metric({label,value}:{label:string;value:string}) { return <div classNa
 
 function AdminAccessUnavailable() {
   const [status, setStatus] = useState<'checking' | 'signed-out' | 'authorized' | 'unconfigured'>('checking');
-  const [localPreview, setLocalPreview] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -409,18 +441,13 @@ function AdminAccessUnavailable() {
   }
 
   if (status === 'authorized') {
-    return <><div className="mx-auto flex max-w-[1120px] justify-end px-4 pt-6 sm:px-7"><button onClick={signOut} className="rounded-lg border border-[#dfe5e8] bg-white px-3 py-2 text-xs font-bold text-[#405268]">Se déconnecter</button></div><AdminPage /></>;
-  }
-
-  if (localPreview && import.meta.env.DEV) {
-    return <><div className="mx-auto max-w-[1120px] px-4 pt-5 sm:px-7"><DemoNote>Aperçu local de démonstration. Toutes les données et actions sont fictives et restent dans ce navigateur.</DemoNote></div><AdminPage /></>;
+    return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Compte administrateur vérifié" title="Console en préparation" text="Votre accès est vérifié, mais la gestion des données réelles n’est pas encore raccordée."/><button onClick={signOut} className="rounded-lg border border-[#dfe5e8] bg-white px-4 py-2.5 text-sm font-bold text-[#405268]">Se déconnecter</button></div>;
   }
 
   const configured = status !== 'unconfigured';
   return <div className="page-enter mx-auto max-w-3xl px-5 py-16 sm:px-7">
     <PageTitle eyebrow="Accès protégé" title="Espace administrateur" text="Connectez-vous avec le compte auquel le rôle administrateur a été attribué." />
     {!configured && <div className="mb-6"><DemoNote>Accès fermé. Configurez les variables Supabase et appliquez la migration avant d’activer la connexion administrateur.</DemoNote></div>}
-    {!configured && import.meta.env.DEV && <button onClick={() => setLocalPreview(true)} className="mb-5 rounded-lg bg-[#183451] px-4 py-2.5 text-sm font-bold text-white">Voir l’aperçu local de l’espace admin</button>}
     {configured && <form onSubmit={signIn} className="mb-6 max-w-md space-y-4 rounded-2xl border border-[#e0e6e8] bg-white p-6 shadow-sm">
       <label className="block text-xs font-bold text-[#506273]">Adresse e-mail<input type="email" autoComplete="username" required value={email} onChange={event => setEmail(event.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal" /></label>
       <label className="block text-xs font-bold text-[#506273]">Mot de passe<input type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal" /></label>
@@ -489,22 +516,54 @@ function AuthPage() {
 }
 
 function ClientSpace() {
-  const {data,setData}=useDemo();
-  const [tab,setTab]=useState<'requests'|'saved'>('requests');
-  const saved=data.favorites.map(f=>({profile:data.profiles.find(p=>p.id===f.professionalId),pro:data.professionals.find(p=>p.profileId===f.professionalId)})).filter(x=>x.profile&&x.pro);
-  return <div className="page-enter mx-auto max-w-[1060px] px-4 py-10 sm:px-7"><PageTitle eyebrow="Espace client · démonstration" title="Votre suivi, en un seul endroit" text="Les demandes et favoris sont enregistrés dans le stockage local de ce navigateur uniquement."/>
-    <div className="mb-5 flex gap-2 border-b border-[#dfe5e8]"><button onClick={()=>setTab('requests')} className={`border-b-2 px-3 py-3 text-sm font-bold ${tab==='requests'?'border-[#183451] text-[#183451]':'border-transparent text-[#76838d]'}`}>Mes demandes ({data.requests.length})</button><button onClick={()=>setTab('saved')} className={`border-b-2 px-3 py-3 text-sm font-bold ${tab==='saved'?'border-[#183451] text-[#183451]':'border-transparent text-[#76838d]'}`}>Professionnels enregistrés ({saved.length})</button></div>
-    {tab==='requests'?data.requests.length?<div className="space-y-3">{data.requests.map(r=>{const p=data.profiles.find(x=>x.id===r.professionalId);return <article key={r.id} className="rounded-xl border border-[#e0e6e8] bg-white p-4 sm:flex sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><h3 className="font-bold text-[#24425c]">{p?.name??'Profil indisponible'}</h3><StatusPill status={r.status}/></div><p className="mt-1 text-sm text-[#5f707d]">{r.description}</p><p className="mt-2 text-[10px] text-[#87939b]">{r.neighborhood} · {r.createdAt} · demande fictive</p></div><button onClick={()=>{if(window.confirm('Supprimer cette demande de la démo ?'))setData(prev=>({...prev,requests:prev.requests.filter(x=>x.id!==r.id)}))}} className="mt-3 text-xs font-bold text-[#9b5144] sm:mt-0">Supprimer</button></article>})}</div>:<EmptyState title="Aucune demande pour le moment" text="Choisissez un professionnel et décrivez votre besoin pour créer une demande de démonstration." href="/" action="Trouver un professionnel"/>:
-    saved.length?<div className="grid gap-3 sm:grid-cols-2">{saved.map(({profile,pro})=><article key={pro!.profileId} className="flex items-center gap-3 rounded-xl border border-[#e0e6e8] bg-white p-4"><Avatar profile={profile!}/><div className="min-w-0 flex-1"><h3 className="font-bold text-[#24425c]">{profile!.name}</h3><p className="text-xs text-[#778590]">{pro!.trade} · {profile!.neighborhood}</p></div><Link href={`/professionnels/${pro!.profileId}`} className="text-xs font-bold text-[#365873]">Profil</Link><button onClick={()=>setData(prev=>({...prev,favorites:prev.favorites.filter(x=>x.professionalId!==pro!.profileId)}))} aria-label="Retirer des favoris" className="p-2 text-[#a45f4d]"><X size={16}/></button></article>)}</div>:<EmptyState title="Vos favoris apparaîtront ici" text="Enregistrez les professionnels que vous souhaitez retrouver facilement." href="/" action="Explorer les profils"/>}
-    <div className="mt-6"><DemoNote>Aucune demande n’est envoyée à un professionnel : cet espace ne synchronise aucune donnée avec un serveur.</DemoNote></div>
+  if (supabase) return <LiveClientSpace />;
+  return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Configuration requise" title="Espace client indisponible" text="La connexion à Supabase n’est pas configurée pour ce site."/><DemoNote>Connectez les variables Supabase dans Vercel et redéployez pour ouvrir votre compte réel.</DemoNote></div>;
+}
+
+function LiveClientSpace() {
+  const [loading, setLoading] = useState(true);
+  const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
+  const [role, setRole] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    void (async () => {
+      try {
+        const { data: auth, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
+        if (!auth.user) return;
+        const { data: profile, error: profileError } = await supabase.from('profiles').select('display_name, role').eq('id', auth.user.id).single();
+        if (profileError) throw profileError;
+        if (!active) return;
+        setEmail(auth.user.email ?? '');
+        setName(profile.display_name);
+        setRole(profile.role);
+      } catch (cause) {
+        if (active) setError(authErrorMessage(cause, 'signin'));
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+  if (loading) return <div className="mx-auto max-w-3xl px-5 py-16 text-sm text-[#647384]">Vérification de votre compte…</div>;
+  if (!email) return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Connexion requise" title="Connectez-vous à votre compte" text="Vous n’êtes pas connecté. Connectez-vous pour vérifier votre compte client ou professionnel."/><Link href="/connexion" className="inline-flex rounded-lg bg-[#183451] px-4 py-3 text-sm font-bold text-white">Se connecter</Link>{error&&<p role="alert" className="mt-3 text-sm text-[#a34436]">{error}</p>}</div>;
+  const roleLabel = role === 'professional' ? 'Professionnel' : role === 'admin' ? 'Administrateur' : 'Client';
+  return <div className="page-enter mx-auto max-w-[900px] px-4 py-10 sm:px-7"><PageTitle eyebrow="Compte Supabase · vérifié" title={`Bonjour, ${name}`} text="Vous êtes connecté à votre compte réel. Cette page confirme l’identité du compte actif sur cet appareil."/>
+    <section className="rounded-2xl border border-[#cfe4d4] bg-white p-5 shadow-[0_8px_24px_rgba(16,56,94,.06)] sm:p-7"><div className="flex flex-wrap items-start gap-4"><span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#eaf6ed] text-[#327044]"><Check size={22}/></span><div className="min-w-0 flex-1"><span className="inline-flex rounded-full bg-[#eaf6ed] px-3 py-1 text-xs font-extrabold text-[#327044]">Compte {roleLabel} réel</span><h2 className="mt-3 break-all text-lg font-bold text-[#183451]">{email}</h2><p className="mt-1 text-xs text-[#71808b]">Adresse utilisée pour ce compte</p></div></div>
+      <div className="mt-5 rounded-xl bg-[#f5f8fa] p-4 text-sm leading-6 text-[#526575]">La connexion et votre identité sont gérées par Supabase. Le suivi des demandes et les favoris ne sont pas encore raccordés à la base ; aucune donnée de démonstration n’est affichée dans cet espace.</div>
+      {role === 'professional' && <Link href="/espace/pro" className="mt-4 inline-flex rounded-lg bg-[#0d5ebd] px-4 py-3 text-sm font-bold text-white">Ouvrir ma fiche professionnelle</Link>}
+      {error&&<p role="alert" className="mt-3 text-sm text-[#a34436]">{error}</p>}
+    </section>
   </div>;
 }
+
 function StatusPill({status}:{status:string}) { const style=status==='Terminée'?'bg-[#edf4ef] text-[#42674d]':status==='Refusée'?'bg-[#f9eeec] text-[#9f5145]':status==='En cours'?'bg-[#eef2f6] text-[#4a6279]':'bg-[#fff4df] text-[#8c672a]';return <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${style}`}>{status}</span>; }
-function EmptyState({title,text,href,action}:{title:string;text:string;href:string;action:string}) { return <div className="rounded-2xl border border-dashed border-[#ccd7dc] bg-white px-5 py-14 text-center"><Bookmark size={25} className="mx-auto text-[#8fa0aa]"/><h2 className="mt-3 font-serif text-xl font-bold text-[#183451]">{title}</h2><p className="mx-auto mt-2 max-w-sm text-sm text-[#73828c]">{text}</p><Link href={href} className="mt-5 inline-block rounded-lg bg-[#183451] px-4 py-2.5 text-xs font-bold text-white">{action}</Link></div>; }
 
 function ProSpace() {
   if (supabase) return <LiveProSpace />;
-  if (import.meta.env.DEV) return <DemoProSpace />;
   return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Configuration requise" title="Espace professionnel indisponible" text="La connexion à la base de données n’est pas configurée pour ce site. Ajoutez les variables Supabase dans Vercel et redéployez."/><DemoNote>La fiche professionnelle ne peut pas être enregistrée tant que Supabase n’est pas configuré.</DemoNote></div>;
 }
 
@@ -529,6 +588,7 @@ function LiveProSpace() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [userId, setUserId] = useState('');
+  const [userEmail, setUserEmail] = useState('');
   const [role, setRole] = useState('');
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [form, setForm] = useState<ProfessionalFormState>(emptyProfessionalForm);
@@ -557,6 +617,7 @@ function LiveProSpace() {
         if (professionalError) throw professionalError;
         if (!active) return;
         setUserId(auth.user.id);
+        setUserEmail(auth.user.email ?? '');
         setRole(profile.role);
         setCategories(categoryRows ?? []);
         if (professional) {
@@ -626,6 +687,7 @@ function LiveProSpace() {
 
   return <div className="page-enter mx-auto max-w-[900px] px-4 py-10 sm:px-7">
     <PageTitle eyebrow="Espace professionnel · compte réel" title={status ? 'Ma fiche professionnelle' : 'Créer ma fiche professionnelle'} text="Ces informations seront enregistrées dans Supabase. Votre fiche restera en attente avant validation." />
+    <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-[#cfe4d4] bg-[#f5fbf6] px-4 py-3 text-xs"><span className="rounded-full bg-[#e4f3e7] px-2.5 py-1 font-extrabold text-[#327044]">Compte professionnel réel</span><span className="font-semibold text-[#29445c]">{form.displayName}</span><span className="text-[#667887]">{userEmail}</span></div>
     <div className="mb-5"><div className="flex items-start gap-3 rounded-xl border border-[#d7e5f7] bg-[#f3f8ff] p-4 text-sm leading-6 text-[#34516d]"><Info size={17} className="mt-0.5 shrink-0 text-[#0d5ebd]"/><p>Les fiches sont publiées après vérification par l’administration. Seuls le nom, le quartier, le métier et les informations professionnelles renseignées seront affichés publiquement.</p></div></div>
     {status && <div className="mb-5 rounded-xl border border-[#ead9b7] bg-[#fff9ee] px-4 py-3 text-sm text-[#735b35]">État de la fiche : <strong>{status === 'verified' ? 'Vérifiée' : status === 'rejected' ? 'À corriger' : status === 'suspended' ? 'Suspendue' : 'En attente de validation'}</strong></div>}
     {categories.length === 0 && <div className="mb-5"><DemoNote>Aucune catégorie n’est disponible. L’administrateur doit exécuter le script `05_seed_data.sql` dans Supabase.</DemoNote></div>}
@@ -745,11 +807,11 @@ function AdminPage() {
 }
 
 function HowPage() {
-  const steps=[['01','Cherchez autour de vous','Choisissez un métier, un quartier et un rayon. Les profils sont classés selon des critères expliqués.'],['02','Comparez les profils','Consultez les compétences, les disponibilités et les avis fictifs de cette démo.'],['03','Prenez contact','Décrivez le travail souhaité. Dans la démo, la demande reste enregistrée sur votre appareil.'],['04','Décidez ensemble','Échangez directement avec le professionnel pour confirmer le prix, le délai et les détails.']];
+  const steps=[['01','Cherchez autour de vous','Choisissez un métier, un quartier et un rayon.'],['02','Comparez les profils','Consultez les compétences, l’expérience et les disponibilités.'],['03','Prenez contact','Décrivez clairement le travail dont vous avez besoin.'],['04','Décidez ensemble','Confirmez directement avec le professionnel le prix, le délai et les détails.']];
   return <div className="page-enter mx-auto max-w-[1050px] px-4 py-10 sm:px-7 sm:py-14"><PageTitle eyebrow="Simple, local, transparent" title="Des compétences proches. Un choix qui vous appartient." text="KaziGoma aide les habitants de Goma à découvrir les savoir-faire de leur quartier et les professionnels à faire connaître leur activité."/>
     <section className="rounded-2xl bg-[#183451] p-6 text-white sm:p-9"><div className="grid gap-7 sm:grid-cols-2">{steps.map(([n,title,text])=><div key={n} className="border-l border-[#f0bf62]/50 pl-4"><span className="text-xs font-extrabold tracking-widest text-[#f0bf62]">{n}</span><h2 className="mt-2 font-serif text-xl font-bold">{title}</h2><p className="mt-2 text-sm leading-6 text-[#cbd8e1]">{text}</p></div>)}</div></section>
     <div className="mt-8 grid gap-4 sm:grid-cols-2"><article className="rounded-xl border border-[#e0e6e8] bg-white p-5"><h3 className="font-serif text-lg font-bold text-[#183451]">Pour les habitants</h3><p className="mt-2 text-sm leading-6 text-[#687885]">Comparez plusieurs profils, consultez leur zone d’intervention et présentez votre besoin avant de prendre une décision.</p></article><article className="rounded-xl border border-[#e0e6e8] bg-white p-5"><h3 className="font-serif text-lg font-bold text-[#183451]">Pour les professionnels</h3><p className="mt-2 text-sm leading-6 text-[#687885]">Présentez vos services, votre expérience et les quartiers où vous intervenez. Un profil clair aide les clients à vous trouver.</p></article></div>
-    <div className="mt-5"><DemoNote>Cette version est une démonstration : profils, avis, coordonnées, points de carte et statistiques sont fictifs. Aucun contrôle d’identité n’est effectué. Les modifications sont locales.</DemoNote></div>
+    <div className="mt-5"><DemoNote>Les profils seront publiés après leur ajout et leur validation. Les avis seront affichés uniquement lorsqu’ils proviendront de prestations réelles.</DemoNote></div>
     <Link href="/" className="mt-6 inline-flex items-center gap-2 rounded-lg bg-[#183451] px-5 py-3 text-sm font-bold text-white">Trouver un professionnel <ArrowRight size={15}/></Link>
   </div>;
 }

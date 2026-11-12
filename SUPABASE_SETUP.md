@@ -1,9 +1,11 @@
 # Connexion à Supabase
 
 L'authentification Supabase est prise en charge lorsque les deux variables
-d'environnement sont configurées. Les pages de recherche, profils, demandes,
-avis et espaces client/professionnel affichent encore les données de
-démonstration : elles ne sont pas encore synchronisées avec la base.
+d'environnement sont configurées. Les profils, avis et demandes fictifs ont
+été retirés : la recherche reste vide jusqu'à l'ajout et au raccordement de
+profils réels. L'inscription et la fiche professionnelle utilisent Supabase ;
+la recherche publique, les demandes, les favoris et la gestion administrateur
+ne sont pas encore entièrement raccordés aux tables.
 
 ## Préparer le projet Supabase
 
@@ -60,8 +62,10 @@ Le calcul de classement peut être vérifié avec
 
 La migration doit être appliquée à votre projet Supabase avant l'inscription.
 Les formulaires de connexion et d'inscription utilisent Supabase Auth lorsque
-les variables sont présentes. Les actions métier et les espaces restent en
-mode démo jusqu'à leur raccordement aux tables.
+les variables sont présentes. L'espace professionnel peut enregistrer une
+fiche réelle ; la recherche publique n'interroge pas encore ces fiches.
+N'importez que des profils et avis réels, et ne fournissez pas de notes ou
+d'informations inventées.
 
 ## Dépannage de l'authentification
 
@@ -96,6 +100,6 @@ where id = 'VOTRE-UUID'::uuid;
 ```
 
 Ne partagez pas cet accès. La connexion à `/admin` valide la session et le rôle
-auprès de Supabase. La console affiche encore des données fictives et ses
-actions restent locales jusqu'au raccordement des opérations d'administration
-à la base.
+auprès de Supabase. Les outils de gestion administrateur ne sont pas encore
+raccordés aux tables ; après authentification, la console l'indique au lieu
+d'afficher des données fictives.
