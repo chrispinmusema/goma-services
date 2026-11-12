@@ -22,23 +22,26 @@ des fiches professionnelles réellement enregistrées et validées.
    `supabase/sql-editor/` un par un et dans cet ordre :
    `01_schema.sql`, `02_auth_and_helpers.sql`, `03_rls_policies.sql`,
    `04_search_and_permissions.sql`, `05_seed_data.sql`, puis
-   `06_admin_accounts.sql`, `08_admin_professional_details.sql`,
-   `09_professional_media.sql`, `10_professional_resubmission.sql` et
-   `11_admin_catalog_management.sql`. Enregistrez
-   chaque snippet avec **Save** (ou `Ctrl+S`) avant de le lancer, puis attendez
-   sa réussite avant de passer au suivant. N'exécutez pas ces scripts si la
-   migration complète a déjà été appliquée.
-   Si les scripts 01 à 05 ou la migration complète ont déjà été appliqués,
-   exécutez `06_admin_accounts.sql`, `08_admin_professional_details.sql`,
-   `09_professional_media.sql`, `10_professional_resubmission.sql` et
-   `11_admin_catalog_management.sql` pour ajouter la liste des comptes, les
-   détails de modération, le stockage des photos, la nouvelle soumission des
-   fiches refusées et la gestion réelle des catégories/compétences. Le script
-   09 rétablit aussi la lecture sécurisée des fiches professionnelles pour les
-   comptes connectés.
-   Si des personnes se sont inscrites avant l'installation du déclencheur,
-   exécutez aussi `07_backfill_existing_profiles.sql` : il crée uniquement les
-   lignes `public.profiles` manquantes pour les comptes Auth déjà présents.
+   `06_admin_accounts.sql`, `07_backfill_existing_profiles.sql`,
+   `08_admin_professional_details.sql`, `09_professional_media.sql`,
+   `10_professional_resubmission.sql` et
+   `11_admin_catalog_management.sql`. Enregistrez chaque snippet avec
+   **Save** (ou `Ctrl+S`) avant de le lancer, puis attendez sa réussite avant
+   de passer au suivant. Les scripts 06 à 11 sont nécessaires aux écrans de
+   gestion des comptes, de validation, de photos et de catalogue.
+   Le script 02 peut être relancé si des fonctions existent déjà : il recrée
+   `admin_list_professionals()` pour éviter les conflits de type de retour.
+   Continuez ensuite jusqu'au script 08, qui installe sa version détaillée
+   utilisée par l'écran d'administration.
+   Pour Supabase CLI, appliquez les deux migrations dans
+   `supabase/migrations/`, dans l'ordre des noms de fichiers. La seconde
+   migration ajoute les mêmes fonctions et politiques que les scripts 06 à 11.
+   Si seule la migration initiale `202610260001_initial_schema.sql` a déjà
+   été appliquée, appliquez la migration de mise à jour
+   `202611120001_account_workflows.sql` ou exécutez les scripts SQL Editor
+   06 à 11 ci-dessus ; n'appliquez pas les deux méthodes de mise à jour.
+   Le script 07 crée uniquement les lignes `public.profiles` manquantes pour
+   les comptes Auth existants.
    Pour diagnostiquer un compte invisible, exécutez
    `12_account_diagnostics.sql` dans le SQL Editor : il retourne seulement des
    totaux (comptes Auth, profils publics, fiches en attente et validées), sans
@@ -85,6 +88,10 @@ administrateur doit la valider. Le catalogue public affiche uniquement les
 fiches dont le statut est `verified`. Les visiteurs peuvent consulter les
 fiches sans compte ; il faut un compte client pour envoyer une demande ou
 enregistrer un favori.
+Les tarifs ne sont plus demandés ni affichés dans les espaces professionnel,
+client ou administrateur. Les colonnes historiques restent en base pour
+préserver les données existantes, mais ne sont plus renvoyées par la recherche
+publique ni par la liste d’administration.
 
 Pour voir tous les comptes Auth dans `/admin`, exécutez aussi
 `supabase/sql-editor/06_admin_accounts.sql` depuis le SQL Editor. L'onglet

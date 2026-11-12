@@ -12,8 +12,6 @@ returns table (
   moderation_reason text,
   description text,
   experience_years integer,
-  indicative_rate numeric,
-  rate_currency text,
   available boolean,
   service_area text[],
   public_contact_phone text,
@@ -34,7 +32,7 @@ begin
   return query
     select p.profile_id, pr.display_name, pr.neighborhood, c.name, p.status,
       p.moderation_reason, p.description, p.experience_years,
-      p.indicative_rate, p.rate_currency, p.available, p.service_area,
+      p.available, p.service_area,
       p.public_contact_phone, coalesce(sk.skill_names, '{}'::text[]),
       p.verified_at, p.created_at
     from public.professionals p

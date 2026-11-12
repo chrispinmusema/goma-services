@@ -1,7 +1,9 @@
 -- 4/5 - Recherche publique et permissions. Ex?cuter apr?s le fichier pr?c?dent.
 
 -- Public search returns rounded distances, never exact provider or client coordinates.
-create or replace function public.search_professionals(
+drop function if exists public.search_professionals(text, double precision, double precision, integer, boolean, text);
+
+create function public.search_professionals(
   p_query text default null,
   p_latitude double precision default null,
   p_longitude double precision default null,
@@ -16,8 +18,6 @@ returns table (
   category_name text,
   description text,
   experience_years integer,
-  indicative_rate numeric,
-  rate_currency text,
   available boolean,
   service_area text[],
   public_contact_phone text,
@@ -57,8 +57,6 @@ begin
     c.name as category_name,
     pr.description,
     pr.experience_years,
-    pr.indicative_rate,
-    pr.rate_currency,
     pr.available,
     pr.service_area,
     pr.public_contact_phone,
@@ -133,4 +131,3 @@ grant select, insert, update, delete on public.professional_skills,
 revoke update on public.service_requests from authenticated;
 grant update (status) on public.service_requests to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
-

@@ -6,7 +6,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path = ''
-as $$
+as $$ 
 begin
   insert into public.profiles (id, display_name, role)
   values (
@@ -21,6 +21,7 @@ begin
 end;
 $$;
 
+drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
 after insert on auth.users
 for each row execute function public.handle_new_user();
@@ -104,7 +105,8 @@ as $$
   end;
 $$;
 
-create or replace function public.admin_list_professionals()
+drop function if exists public.admin_list_professionals();
+create function public.admin_list_professionals()
 returns table (
   profile_id uuid,
   display_name text,
@@ -161,4 +163,3 @@ begin
   end if;
 end;
 $$;
-
