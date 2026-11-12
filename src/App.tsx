@@ -998,6 +998,9 @@ function LiveAdminPage() {
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState('');
+  const [currentAdminId, setCurrentAdminId] = useState('');
+  const [pendingDeleteAccount, setPendingDeleteAccount] = useState('');
+  const [deletingAccount, setDeletingAccount] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
@@ -1005,6 +1008,8 @@ function LiveAdminPage() {
     if (!supabase) return;
     setLoading(true);
     setError('');
+    const { data: authData } = await supabase.auth.getUser();
+    setCurrentAdminId(authData.user?.id ?? '');
     const [{ data: accountRows, error: accountError }, { data: professionalRows, error: professionalError }, { data: categoryRows, error: categoryError }, { data: skillRows, error: skillError }] = await Promise.all([
       supabase.rpc('admin_list_accounts'),
       supabase.rpc('admin_list_professionals'),
@@ -1075,6 +1080,46 @@ function LiveAdminPage() {
     setBusyId('');
   };
 
+  const deleteAccount = async (account: AdminAccountRecord) => {
+    if (!supabase) return;
+    if (account.user_id === currentAdminId) {
+      setError('Le compte administrateur actuellement connecté ne peut pas être supprimé ici.');
+      return;
+    }
+    if (pendingDeleteAccount !== account.user_id) {
+      setPendingDeleteAccount(account.user_id);
+      return;
+    }
+
+    setDeletingAccount(account.user_id);
+    setError('');
+    setNotice('');
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!sessionData.session?.access_token) throw new Error('La session administrateur a expiré. Reconnectez-vous puis réessayez.');
+
+      const response = await fetch('/api/admin/delete-account', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ userId: account.user_id }),
+      });
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(result.error || 'La suppression du compte a échoué.');
+
+      setPendingDeleteAccount('');
+      setNotice(`Le compte ${account.display_name} et ses données associées ont été supprimés.`);
+      await refresh();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'La suppression du compte a échoué.');
+    } finally {
+      setDeletingAccount('');
+    }
+  };
+
   const catalogError = (error: {code?:string;message:string}) => {
     if (error.code==='42501' || /permission denied/i.test(error.message)) return 'Permission SQL manquante. Exécutez supabase/sql-editor/11_admin_catalog_management.sql dans Supabase.';
     if (error.code==='23503') return 'Cette ligne est encore utilisée par une fiche ou une compétence. Détachez-la avant de la supprimer.';
@@ -1136,7 +1181,7 @@ function LiveAdminPage() {
     <div className="mb-5 grid gap-3 sm:grid-cols-3"><Metric label="Comptes enregistrés" value={String(accounts.length)}/><Metric label="Professionnels actifs" value={String(professionals.filter(pro=>pro.status==='verified').length)}/><Metric label="Fiches à examiner" value={String(professionals.filter(pro=>pro.status==='pending').length)}/></div>
     <div role="tablist" aria-label="Données administrateur" className="flex flex-wrap gap-1 rounded-xl border border-[#e4eaf0] bg-white p-1.5 shadow-sm"><button role="tab" aria-selected={tab==='accounts'} onClick={()=>setTab('accounts')} className={`rounded-lg px-4 py-2.5 text-sm font-bold ${tab==='accounts'?'bg-[#183451] text-white':'text-[#667887] hover:bg-[#f1f5f8]'}`}>Comptes ({accounts.length})</button><button role="tab" aria-selected={tab==='professionals'} onClick={()=>setTab('professionals')} className={`rounded-lg px-4 py-2.5 text-sm font-bold ${tab==='professionals'?'bg-[#183451] text-white':'text-[#667887] hover:bg-[#f1f5f8]'}`}>Fiches professionnelles ({professionals.length})</button><button role="tab" aria-selected={tab==='catalog'} onClick={()=>setTab('catalog')} className={`rounded-lg px-4 py-2.5 text-sm font-bold ${tab==='catalog'?'bg-[#183451] text-white':'text-[#667887] hover:bg-[#f1f5f8]'}`}>Métiers et compétences ({categories.length})</button></div>
     {error&&<p role="alert" className="mt-4 rounded-xl border border-[#f0d8d4] bg-[#fff8f6] px-4 py-3 text-sm text-[#9f5145]">{error}</p>}{notice&&<p role="status" className="mt-4 rounded-xl border border-[#cfe4d4] bg-[#f5fbf6] px-4 py-3 text-sm text-[#327044]">{notice}</p>}
-    {loading?<div className="mt-5 rounded-2xl border border-[#e0e6e8] bg-white p-10 text-center text-sm text-[#647384]">Chargement des données Supabase…</div>:tab==='catalog'?<AdminCatalogPanel categories={categories} skills={skills} categoryName={categoryName} categoryDescription={categoryDescription} skillDrafts={skillDrafts} pendingDeleteCategory={pendingDeleteCategory} pendingDeleteSkill={pendingDeleteSkill} busy={catalogBusy} message={catalogMessage} onCategoryName={setCategoryName} onCategoryDescription={setCategoryDescription} onSkillDraft={(id,value)=>setSkillDrafts(current=>({...current,[id]:value}))} onAddCategory={addCategory} onAddSkill={addSkill} onDeleteCategory={deleteCategory} onDeleteSkill={deleteSkill} onCancelDeleteCategory={()=>setPendingDeleteCategory("")} onCancelDeleteSkill={()=>setPendingDeleteSkill("")} />:tab==='accounts'?<section className="mt-4 overflow-x-auto rounded-2xl border border-[#e0e6e8] bg-white shadow-sm"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-[#f5f8fa] text-[10px] uppercase tracking-wider text-[#71808b]"><tr><th className="p-4">Adresse du compte</th><th className="p-4">Nom</th><th className="p-4">Type</th><th className="p-4">Quartier</th><th className="p-4">Profil</th><th className="p-4">Inscription</th></tr></thead><tbody>{accounts.map(account=><tr key={account.user_id} className="border-t border-[#edf0f1]"><td className="p-4 font-semibold text-[#29445c]">{account.email || 'E-mail indisponible'}</td><td className="p-4 text-[#526575]">{account.display_name}</td><td className="p-4"><span className="rounded-full bg-[#edf4fc] px-2.5 py-1 text-xs font-bold text-[#174572]">{roleName(account.role)}</span></td><td className="p-4 text-[#637480]">{account.neighborhood || '—'}</td><td className="p-4">{account.profile_exists?<span className="text-xs font-bold text-[#327044]">Créé</span>:<span className="text-xs font-bold text-[#a65445]">Manquant</span>}</td><td className="p-4 text-xs text-[#71808b]">{new Date(account.created_at).toLocaleDateString('fr-FR')}</td></tr>)}{accounts.length===0&&<tr><td colSpan={6} className="p-10 text-center text-sm text-[#71808b]">Aucun compte Auth trouvé.</td></tr>}</tbody></table></section>:<section className="mt-4 space-y-3">{professionals.map(pro=><AdminProfessionalCard key={pro.profile_id} pro={pro} reason={reasons[pro.profile_id]??''} busy={busyId===pro.profile_id} onReason={value=>setReasons(prev=>({...prev,[pro.profile_id]:value}))} onReview={status=>void review(pro.profile_id,status)}/ >)}{professionals.length===0&&<div className="rounded-2xl border border-dashed border-[#ccd7dc] bg-white px-5 py-12 text-center text-sm text-[#71808b]">Aucune fiche professionnelle n’a encore été envoyée.</div>}</section>}
+    {loading?<div className="mt-5 rounded-2xl border border-[#e0e6e8] bg-white p-10 text-center text-sm text-[#647384]">Chargement des données Supabase…</div>:tab==='catalog'?<AdminCatalogPanel categories={categories} skills={skills} categoryName={categoryName} categoryDescription={categoryDescription} skillDrafts={skillDrafts} pendingDeleteCategory={pendingDeleteCategory} pendingDeleteSkill={pendingDeleteSkill} busy={catalogBusy} message={catalogMessage} onCategoryName={setCategoryName} onCategoryDescription={setCategoryDescription} onSkillDraft={(id,value)=>setSkillDrafts(current=>({...current,[id]:value}))} onAddCategory={addCategory} onAddSkill={addSkill} onDeleteCategory={deleteCategory} onDeleteSkill={deleteSkill} onCancelDeleteCategory={()=>setPendingDeleteCategory("")} onCancelDeleteSkill={()=>setPendingDeleteSkill("")} />:tab==='accounts'?<section className="mt-4 overflow-x-auto rounded-2xl border border-[#e0e6e8] bg-white shadow-sm"><table className="w-full min-w-[900px] text-left text-sm"><thead className="bg-[#f5f8fa] text-[10px] uppercase tracking-wider text-[#71808b]"><tr><th className="p-4">Adresse du compte</th><th className="p-4">Nom</th><th className="p-4">Type</th><th className="p-4">Quartier</th><th className="p-4">Profil</th><th className="p-4">Inscription</th><th className="p-4">Action</th></tr></thead><tbody>{accounts.map(account=><tr key={account.user_id} className="border-t border-[#edf0f1]"><td className="p-4 font-semibold text-[#29445c]">{account.email || 'E-mail indisponible'}</td><td className="p-4 text-[#526575]">{account.display_name}</td><td className="p-4"><span className="rounded-full bg-[#edf4fc] px-2.5 py-1 text-xs font-bold text-[#174572]">{roleName(account.role)}</span></td><td className="p-4 text-[#637480]">{account.neighborhood || '—'}</td><td className="p-4">{account.profile_exists?<span className="text-xs font-bold text-[#327044]">Créé</span>:<span className="text-xs font-bold text-[#a65445]">Manquant</span>}</td><td className="p-4 text-xs text-[#71808b]">{new Date(account.created_at).toLocaleDateString('fr-FR')}</td><td className="p-4">{account.user_id===currentAdminId?<span className="text-xs font-semibold text-[#87939b]">Compte actuel</span>:pendingDeleteAccount===account.user_id?<div className="min-w-[210px] space-y-2"><p className="text-xs font-semibold leading-5 text-[#9f5145]">{`Supprimer définitivement ${account.display_name} (${account.email || 'e-mail indisponible'}), sa fiche, ses données liées et ses photos ?`}</p><div className="flex gap-2"><button type="button" disabled={deletingAccount===account.user_id} onClick={()=>void deleteAccount(account)} className="rounded-lg bg-[#9f5145] px-3 py-2 text-xs font-bold text-white disabled:opacity-60">{deletingAccount===account.user_id?'Suppression…':'Confirmer'}</button><button type="button" disabled={Boolean(deletingAccount)} onClick={()=>setPendingDeleteAccount("")} className="rounded-lg border border-[#dfe5e8] px-3 py-2 text-xs font-bold text-[#526575]">Annuler</button></div></div>:<button type="button" disabled={Boolean(deletingAccount)} onClick={()=>void deleteAccount(account)} className="rounded-lg border border-[#e7d5d2] px-3 py-2 text-xs font-bold text-[#994d43] hover:bg-[#fff8f6] disabled:opacity-60">Supprimer</button>}</td></tr>)}{accounts.length===0&&<tr><td colSpan={7} className="p-10 text-center text-sm text-[#71808b]">Aucun compte Auth trouvé.</td></tr>}</tbody></table></section>:<section className="mt-4 space-y-3">{professionals.map(pro=><AdminProfessionalCard key={pro.profile_id} pro={pro} reason={reasons[pro.profile_id]??''} busy={busyId===pro.profile_id} onReason={value=>setReasons(prev=>({...prev,[pro.profile_id]:value}))} onReview={status=>void review(pro.profile_id,status)}/ >)}{professionals.length===0&&<div className="rounded-2xl border border-dashed border-[#ccd7dc] bg-white px-5 py-12 text-center text-sm text-[#71808b]">Aucune fiche professionnelle n’a encore été envoyée.</div>}</section>}
   </div>;
 }
 

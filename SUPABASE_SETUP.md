@@ -95,6 +95,24 @@ compétences** permet à l'administration de créer et supprimer les catégories
 et leurs compétences. Les clés étrangères empêchent de supprimer une catégorie
 ou une compétence encore utilisée.
 
+Dans l'onglet **Comptes**, un administrateur peut supprimer un autre compte
+après confirmation. Cette opération efface définitivement le compte Auth, son
+profil, les données applicatives liées et ses photos professionnelles. Le
+compte actuellement connecté et le dernier administrateur sont protégés.
+L'opération passe par la fonction serveur Vercel
+`/api/admin/delete-account` : elle vérifie la session et le rôle administrateur,
+supprime les photos avant le compte Auth, puis laisse les clés étrangères
+nettoyer les données associées. Elle ne peut pas être appelée comme
+administrateur depuis un navigateur sans session valide.
+
+Pour activer cette fonction, ajoutez dans **Vercel → Settings → Environment
+Variables → Production** la variable `SUPABASE_SERVICE_ROLE_KEY`, avec la clé
+`service_role` (ou la clé secrète du projet Supabase), puis redéployez. Cette
+clé doit rester une variable serveur : ne la nommez jamais `VITE_*`, ne la
+mettez pas dans le dépôt et ne la communiquez pas. Si elle manque, la liste et
+les autres fonctions admin restent disponibles, mais la suppression répond
+qu'elle n'est pas configurée.
+
 Sur Vercel, configurez `VITE_SUPABASE_URL` et
 `VITE_SUPABASE_PUBLISHABLE_KEY` dans les variables d'environnement de
 Production, puis redéployez. Sans ces variables, les pages publiques indiquent
