@@ -503,6 +503,151 @@ function StatusPill({status}:{status:string}) { const style=status==='Terminée'
 function EmptyState({title,text,href,action}:{title:string;text:string;href:string;action:string}) { return <div className="rounded-2xl border border-dashed border-[#ccd7dc] bg-white px-5 py-14 text-center"><Bookmark size={25} className="mx-auto text-[#8fa0aa]"/><h2 className="mt-3 font-serif text-xl font-bold text-[#183451]">{title}</h2><p className="mx-auto mt-2 max-w-sm text-sm text-[#73828c]">{text}</p><Link href={href} className="mt-5 inline-block rounded-lg bg-[#183451] px-4 py-2.5 text-xs font-bold text-white">{action}</Link></div>; }
 
 function ProSpace() {
+  if (supabase) return <LiveProSpace />;
+  if (import.meta.env.DEV) return <DemoProSpace />;
+  return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Configuration requise" title="Espace professionnel indisponible" text="La connexion à la base de données n’est pas configurée pour ce site. Ajoutez les variables Supabase dans Vercel et redéployez."/><DemoNote>La fiche professionnelle ne peut pas être enregistrée tant que Supabase n’est pas configuré.</DemoNote></div>;
+}
+
+type ProfessionalFormState = {
+  displayName: string;
+  neighborhood: string;
+  categoryId: string;
+  description: string;
+  experienceYears: string;
+  indicativeRate: string;
+  available: boolean;
+  serviceArea: string;
+  phone: string;
+};
+
+const emptyProfessionalForm: ProfessionalFormState = {
+  displayName: '', neighborhood: neighborhoods[0], categoryId: '', description: '',
+  experienceYears: '0', indicativeRate: '', available: false, serviceArea: '', phone: '',
+};
+
+function LiveProSpace() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [userId, setUserId] = useState('');
+  const [role, setRole] = useState('');
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [form, setForm] = useState<ProfessionalFormState>(emptyProfessionalForm);
+  const [status, setStatus] = useState<string | null>(null);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    void (async () => {
+      try {
+        const { data: auth, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
+        if (!auth.user) { if (active) setLoading(false); return; }
+        const [{ data: profile, error: profileError }, { data: categoryRows, error: categoryError }] = await Promise.all([
+          supabase.from('profiles').select('display_name, neighborhood, role').eq('id', auth.user.id).single(),
+          supabase.from('categories').select('id, name').order('name'),
+        ]);
+        if (profileError) throw profileError;
+        if (categoryError) throw categoryError;
+        const { data: professional, error: professionalError } = await supabase
+          .from('professionals')
+          .select('category_id, description, experience_years, indicative_rate, available, service_area, public_contact_phone, status')
+          .eq('profile_id', auth.user.id)
+          .maybeSingle();
+        if (professionalError) throw professionalError;
+        if (!active) return;
+        setUserId(auth.user.id);
+        setRole(profile.role);
+        setCategories(categoryRows ?? []);
+        if (professional) {
+          setStatus(professional.status);
+          setForm({
+            displayName: profile.display_name ?? '', neighborhood: profile.neighborhood ?? neighborhoods[0],
+            categoryId: professional.category_id, description: professional.description ?? '',
+            experienceYears: String(professional.experience_years ?? 0),
+            indicativeRate: professional.indicative_rate == null ? '' : String(professional.indicative_rate),
+            available: Boolean(professional.available), serviceArea: (professional.service_area ?? []).join(', '),
+            phone: professional.public_contact_phone ?? '',
+          });
+        } else {
+          setForm(current => ({ ...current, displayName: profile.display_name ?? '', neighborhood: profile.neighborhood ?? neighborhoods[0] }));
+        }
+      } catch (error) {
+        if (active) setMessage(authErrorMessage(error, 'signin'));
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
+  const updateForm = <K extends keyof ProfessionalFormState>(key: K, value: ProfessionalFormState[K]) => {
+    setForm(current => ({ ...current, [key]: value }));
+  };
+
+  const saveProfessional = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!supabase || !userId) return;
+    setMessage('');
+    if (!form.categoryId) { setMessage('Choisissez un métier dans la liste.'); return; }
+    if (form.description.trim().length < 20) { setMessage('Ajoutez une présentation d’au moins 20 caractères.'); return; }
+    const years = Number(form.experienceYears);
+    const rate = form.indicativeRate.trim() === '' ? null : Number(form.indicativeRate);
+    if (!Number.isInteger(years) || years < 0 || years > 80) { setMessage('Indiquez une expérience comprise entre 0 et 80 ans.'); return; }
+    if (rate !== null && (!Number.isFinite(rate) || rate < 0)) { setMessage('Le tarif doit être un montant positif.'); return; }
+    const serviceArea = [...new Set(form.serviceArea.split(',').map(area => area.trim()).filter(Boolean))];
+    setSaving(true);
+    try {
+      const { error: profileError } = await supabase.from('profiles').update({
+        display_name: form.displayName.trim(), neighborhood: form.neighborhood,
+      }).eq('id', userId);
+      if (profileError) throw profileError;
+      const professionalValues = {
+        profile_id: userId, category_id: form.categoryId, description: form.description.trim(),
+        experience_years: years, indicative_rate: rate, rate_currency: 'CDF', available: form.available,
+        service_area: serviceArea, public_contact_phone: form.phone.trim() || null,
+      };
+      const write = status
+        ? await supabase.from('professionals').update(professionalValues).eq('profile_id', userId)
+        : await supabase.from('professionals').insert(professionalValues);
+      if (write.error) throw write.error;
+      setStatus(status ?? 'pending');
+      setMessage('Votre fiche professionnelle est enregistrée. Elle sera visible après validation par l’administration.');
+    } catch (error) {
+      setMessage(authErrorMessage(error, 'signup'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <div className="mx-auto max-w-3xl px-5 py-16 text-sm text-[#647384]">Chargement de votre espace…</div>;
+  if (!userId) return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Connexion requise" title="Créez votre compte professionnel" text="Connectez-vous avec votre compte professionnel, puis complétez votre fiche pour l’enregistrer dans la base de données."/><Link href="/connexion" className="inline-flex rounded-lg bg-[#183451] px-4 py-3 text-sm font-bold text-white">Se connecter</Link></div>;
+  if (role !== 'professional') return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Espace réservé" title="Ce compte n’est pas professionnel" text="Déconnectez-vous et créez un compte en choisissant « Un professionnel » à l’inscription."/><button onClick={() => void supabase?.auth.signOut()} className="rounded-lg border border-[#dfe5e8] bg-white px-4 py-2.5 text-sm font-bold text-[#405268]">Se déconnecter</button></div>;
+
+  return <div className="page-enter mx-auto max-w-[900px] px-4 py-10 sm:px-7">
+    <PageTitle eyebrow="Espace professionnel · compte réel" title={status ? 'Ma fiche professionnelle' : 'Créer ma fiche professionnelle'} text="Ces informations seront enregistrées dans Supabase. Votre fiche restera en attente avant validation." />
+    <div className="mb-5"><div className="flex items-start gap-3 rounded-xl border border-[#d7e5f7] bg-[#f3f8ff] p-4 text-sm leading-6 text-[#34516d]"><Info size={17} className="mt-0.5 shrink-0 text-[#0d5ebd]"/><p>Les fiches sont publiées après vérification par l’administration. Seuls le nom, le quartier, le métier et les informations professionnelles renseignées seront affichés publiquement.</p></div></div>
+    {status && <div className="mb-5 rounded-xl border border-[#ead9b7] bg-[#fff9ee] px-4 py-3 text-sm text-[#735b35]">État de la fiche : <strong>{status === 'verified' ? 'Vérifiée' : status === 'rejected' ? 'À corriger' : status === 'suspended' ? 'Suspendue' : 'En attente de validation'}</strong></div>}
+    {categories.length === 0 && <div className="mb-5"><DemoNote>Aucune catégorie n’est disponible. L’administrateur doit exécuter le script `05_seed_data.sql` dans Supabase.</DemoNote></div>}
+    <form onSubmit={saveProfessional} className="rounded-2xl border border-[#e0e6e8] bg-white p-5 shadow-[0_8px_24px_rgba(16,56,94,.06)] sm:p-7">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="block text-xs font-bold text-[#506273]">Nom affiché<input required maxLength={100} value={form.displayName} onChange={e=>updateForm('displayName',e.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal"/></label>
+        <label className="block text-xs font-bold text-[#506273]">Métier<select required value={form.categoryId} onChange={e=>updateForm('categoryId',e.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] bg-white px-3 py-3 text-sm font-normal"><option value="">Choisir un métier</option>{categories.map(category=><option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+        <label className="block text-xs font-bold text-[#506273]">Votre quartier<select value={form.neighborhood} onChange={e=>updateForm('neighborhood',e.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] bg-white px-3 py-3 text-sm font-normal">{neighborhoods.map(place=><option key={place}>{place}</option>)}</select></label>
+        <label className="block text-xs font-bold text-[#506273]">Téléphone public (facultatif)<input type="tel" maxLength={32} value={form.phone} onChange={e=>updateForm('phone',e.target.value)} placeholder="Ex. +243…" className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal"/><span className="mt-1 block font-normal text-[#81909b]">Ce numéro pourra être affiché aux visiteurs.</span></label>
+        <label className="block text-xs font-bold text-[#506273]">Expérience (années)<input type="number" min="0" max="80" step="1" required value={form.experienceYears} onChange={e=>updateForm('experienceYears',e.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal"/></label>
+        <label className="block text-xs font-bold text-[#506273]">Tarif indicatif en CDF (facultatif)<input type="number" min="0" step="1" value={form.indicativeRate} onChange={e=>updateForm('indicativeRate',e.target.value)} placeholder="Laisser vide si sur devis" className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal"/></label>
+      </div>
+      <label className="mt-4 block text-xs font-bold text-[#506273]">Présentation professionnelle<textarea required minLength={20} maxLength={3000} rows={5} value={form.description} onChange={e=>updateForm('description',e.target.value)} placeholder="Décrivez vos services et votre expérience…" className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal"/></label>
+      <label className="mt-4 block text-xs font-bold text-[#506273]">Zones d’intervention <span className="font-normal text-[#81909b]">(séparées par des virgules)</span><input value={form.serviceArea} onChange={e=>updateForm('serviceArea',e.target.value)} placeholder="Himbi, Katindo…" className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal"/></label>
+      <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-xl bg-[#f5f8fa] p-4 text-sm font-semibold text-[#435c70]"><input type="checkbox" checked={form.available} onChange={e=>updateForm('available',e.target.checked)} className="h-4 w-4 accent-[#0d5ebd]"/>Je suis disponible pour recevoir des demandes</label>
+      {message && <p role="status" className="mt-4 rounded-lg bg-[#f3f6f7] p-3 text-sm leading-5 text-[#526575]">{message}</p>}
+      <button type="submit" disabled={saving || categories.length===0} className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#0d5ebd] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#0b4fa7] disabled:cursor-not-allowed disabled:opacity-60"><Check size={17}/>{saving?'Enregistrement…':status?'Enregistrer les modifications':'Créer ma fiche professionnelle'}</button>
+    </form>
+  </div>;
+}
+
+function DemoProSpace() {
   const {data,setData}=useDemo();
   const [selected,setSelected]=useState('p1');
   const pro=data.professionals.find(p=>p.profileId===selected)??data.professionals[0];

@@ -11,7 +11,8 @@ démonstration : elles ne sont pas encore synchronisées avec la base.
 2. Dans **Project Settings → API**, récupérez l'URL du projet et la clé
    publishable (ou l'ancienne clé `anon`). N'utilisez jamais la clé
    `service_role` ou une clé secrète dans l'application.
-3. Ajoutez ces variables au projet Replit :
+3. Ajoutez ces variables au projet Vercel, dans **Settings → Environment Variables**,
+   pour les environnements Preview et Production :
    - `VITE_SUPABASE_URL` — URL du projet Supabase.
    - `VITE_SUPABASE_PUBLISHABLE_KEY` — clé publishable (ou
      `VITE_SUPABASE_ANON_KEY` pour les anciens projets).
@@ -19,16 +20,17 @@ démonstration : elles ne sont pas encore synchronisées avec la base.
    ces deux variables (voir `.env.example`), puis redémarrez `npm run dev`.
 4. Dans le SQL Editor de Supabase, exécutez les scripts de
    `supabase/sql-editor/` un par un et dans cet ordre :
-   `01_schema.sqls, `02_auth_and_helpers.sql`, `03_rls_policies.sql`,
+   `01_schema.sql`, `02_auth_and_helpers.sql`, `03_rls_policies.sql`,
    `04_search_and_permissions.sql`, puis `05_seed_data.sql`. Enregistrez
    chaque snippet avec **Save** (ou `Ctrl+S`) avant de le lancer, puis attendez
    sa réussite avant de passer au suivant. N'exécutez pas ces scripts si la
    migration complète a déjà été appliquée.
    Pour les déploiements avec Supabase CLI, conservez et utilisez plutôt la
    migration complète dans `supabase/migrations/`.
-5. Dans Supabase Auth, activez la confirmation par e-mail selon votre choix et
-   configurez les URL du site et de redirection pour la prévisualisation et la
-   production. L'inscription envoie le nom et le rôle client/professionnel à
+5. Après avoir modifié les variables Vercel, redéployez le site pour inclure
+   cette configuration. Dans Supabase Auth, activez la confirmation par e-mail
+   selon votre choix et configurez l'URL du site ainsi que les URL de redirection
+   Vercel Preview et Production. L'inscription envoie le nom et le rôle client/professionnel à
    Auth; le déclencheur SQL crée le profil. Le rôle administrateur n'est jamais
    accepté depuis l'inscription.
 6. Redémarrez l'application après avoir ajouté les variables. Testez d'abord
