@@ -1,37 +1,20 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import type { Dispatch, FormEvent, ReactNode, SetStateAction } from 'react';
+import { useEffect, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { ProfessionalMap } from '@/components/professional-map'; 
 import NotFound from '@/pages/not-found';
 import { Link, Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import { ArrowLeft, ArrowRight, BadgeCheck, Bookmark, CarFront, Check, ChevronDown, Clock3, Compass, Hammer, Heart, House, Info, Laptop, Link2, LogOut, MapPin, Menu, Navigation, Phone, Plus, Search, ShieldCheck, SlidersHorizontal, Smartphone, Star, Trash2, UserRound, Wrench, X, Zap } from 'lucide-react';
-import { type Category, type DemoState, type Professional, type Profile, loadDemo, saveDemo, neighborhoods } from './lib/demo-store';
-import { rankMatches, type RankedProfessional } from './lib/ranking';
+import { neighborhoods } from './lib/neighborhoods';
 import { supabase } from './lib/supabase';
 
 const client = new QueryClient();
-type Store = { data: DemoState; setData: Dispatch<SetStateAction<DemoState>> };
-const DemoContext = createContext<Store | null>(null);
-function useDemo() { const value = useContext(DemoContext); if (!value) throw new Error('Demo store unavailable'); return value; }
 const navLinks = [['/', 'Accueil'], ['/fonctionnement', 'Comment ça marche'], ['/contact', 'Contact']];
-const statusOptions = ['En attente', 'Acceptée', 'En cours', 'Terminée', 'Refusée'];
-const homeCategoryOrder = [
-  { id: 'plomberie', Icon: Wrench, imagePosition: '100% 50%' },
-  { id: 'electricite', Icon: Zap, imagePosition: '76% 0%' },
-  { id: 'telephones', Icon: Smartphone, imagePosition: '55% 25%' },
-  { id: 'informatique', Icon: Laptop, imagePosition: '100% 40%' },
-  { id: 'menuiserie', Icon: Hammer, imagePosition: '82% 72%' },
-  { id: 'construction', Icon: House, imagePosition: '76% 0%' },
-  { id: 'mecanique', Icon: CarFront, imagePosition: '96% 50%' },
-];
 
 function App() {
-  const [data, setData] = useState<DemoState>(loadDemo);
-  useEffect(() => saveDemo(data), [data]);
-  return <QueryClientProvider client={client}><TooltipProvider><DemoContext.Provider value={{ data, setData }}><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Router /></WouterRouter><Toaster /></DemoContext.Provider></TooltipProvider></QueryClientProvider>;
+  return <QueryClientProvider client={client}><TooltipProvider><WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}><Router /></WouterRouter><Toaster /></TooltipProvider></QueryClientProvider>;
 }
 
 function Router() {
@@ -41,6 +24,7 @@ function Router() {
     <Route path="/professionnels/:id" component={ProfessionalPage} />
     <Route path="/connexion" component={AuthPage} />
     <Route path="/inscription" component={AuthPage} />
+    <Route path="/auth/callback" component={AuthCallbackPage} />
     <Route path="/espace/client" component={ClientSpace} />
     <Route path="/espace/pro" component={ProSpace} />
     <Route path="/admin" component={AdminAccessUnavailable} />
@@ -60,13 +44,15 @@ function Shell({ children }: { children: ReactNode }) {
     let active = true;
     const loadAccount = async (user: { id: string; email?: string; user_metadata?: Record<string, unknown> } | null) => {
       if (!user) { if (active) setAccount(null); return; }
-      const { data: profile } = await supabase!.from('profiles').select('display_name, role').eq('id', user.id).maybeSingle();
+      let profile: { display_name: string; role: string };
+      try { profile = await ensureAccountProfile(user); }
+      catch { if (active) setAccount(null); return; }
       if (!active) return;
       setAccount({
         id: user.id,
         email: user.email ?? '',
-        name: profile?.display_name || (typeof user.user_metadata?.display_name === 'string' ? user.user_metadata.display_name : user.email ?? 'Mon compte'),
-        role: profile?.role ?? '',
+        name: profile.display_name || user.email || 'Mon compte',
+        role: profile.role,
       });
     };
     void supabase.auth.getUser().then(({ data }) => loadAccount(data.user));
@@ -133,238 +119,241 @@ function Shell({ children }: { children: ReactNode }) {
 function PageTitle({ eyebrow, title, text }: { eyebrow?: string; title: string; text?: string }) {
   return <div className="mb-7"><div className="mb-2 text-[10px] font-extrabold uppercase tracking-[.18em] text-[#a57934]">{eyebrow}</div><h1 className="font-serif text-3xl font-extrabold tracking-[-1px] text-[#183451] sm:text-[38px]">{title}</h1>{text && <p className="mt-2 max-w-2xl text-sm leading-6 text-[#647384]">{text}</p>}</div>;
 }
-function DemoNote({ children }: { children: ReactNode }) { return <div className="flex gap-2 rounded-lg border border-[#ead9b7] bg-[#fff9ee] px-3 py-2.5 text-xs leading-5 text-[#735b35]"><Info size={15} className="mt-0.5 shrink-0"/><span>{children}</span></div>; }
-function Avatar({ profile, large = false }: { profile: Profile; large?: boolean }) { return <div className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#e9eff2] font-bold text-[#284863] ${large ? 'h-[68px] w-[68px] text-lg' : 'h-11 w-11 text-xs'}`}>{profile.avatar.startsWith('data:image/') ? <img src={profile.avatar} alt={`Photo de profil de ${profile.name}`} className="h-full w-full object-cover"/> : profile.avatar}</div>; }
-function ProfessionalPortrait({ profileId, name, avatar }: { profileId: string; name: string; avatar?: string }) {
-  const portraitPosition: Record<string, string> = {
-    p1: '100% 39%',
-    p2: '86% 39%',
-    p3: '74% 0%',
-    p4: '86% 39%',
-    p5: '100% 39%',
-    p6: '75% 76%',
-    p7: '74% 0%',
-  };
-  return <div className="h-[72px] w-[72px] shrink-0 overflow-hidden rounded-full border-[3px] border-white bg-[#e9eff2] shadow-[0_2px_8px_rgba(24,52,81,0.12)] sm:h-[96px] sm:w-[96px]">
-    {avatar?.startsWith('data:image/') ? <img src={avatar} alt={`Photo de profil de ${name}`} className="h-full w-full object-cover"/> : <div
-      role="img"
-      aria-label={`Portrait illustratif pour ${name}`}
-      className="h-full w-full"
-      style={{
-        backgroundImage: "url('/Professional%20Services%20Marketplace%20Collage.png')",
-        backgroundPosition: portraitPosition[profileId] ?? '100% 39%',
-        backgroundSize: '600% auto',
-      }}
-    />}
-  </div>;
-}
+function InfoNote({ children }: { children: ReactNode }) { return <div className="flex gap-2 rounded-lg border border-[#ead9b7] bg-[#fff9ee] px-3 py-2.5 text-xs leading-5 text-[#735b35]"><Info size={15} className="mt-0.5 shrink-0"/><span>{children}</span></div>; }
+type LiveSearchRecord = {
+  profile_id: string;
+  display_name: string;
+  neighborhood: string | null;
+  category_name: string;
+  description: string;
+  experience_years: number;
+  indicative_rate: number | null;
+  rate_currency: string;
+  available: boolean;
+  service_area: string[];
+  public_contact_phone: string | null;
+  skills: string[];
+  average_rating: number | null;
+  review_count: number;
+  approximate_distance_meters: number | null;
+};
+type ProfessionalMedia = { avatar_path: string | null; portfolio_paths: string[] };
+function professionalMediaUrl(path: string | null | undefined) { return path && supabase ? supabase.storage.from('professional-media').getPublicUrl(path).data.publicUrl : undefined; }
 
 function HomePage() {
-  const { data, setData } = useDemo();
+  if (supabase) return <LiveHomePage />;
+  return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Configuration requise" title="Le catalogue est momentanément indisponible" text="La connexion à la base de données n’est pas configurée sur cette version du site. Les comptes et les fiches doivent être chargés depuis Supabase pour être visibles sur tous les appareils."/><div className="rounded-xl border border-[#ead9b7] bg-[#fff9ee] p-4 text-sm leading-6 text-[#735b35]">Dans Vercel, vérifiez les variables <strong>VITE_SUPABASE_URL</strong> et <strong>VITE_SUPABASE_PUBLISHABLE_KEY</strong>, puis redéployez le projet.</div><Link href="/connexion" className="mt-5 inline-flex rounded-lg bg-[#183451] px-4 py-3 text-sm font-bold text-white">Connexion</Link></div>;
+}
+
+function LiveHomePage() {
+  const [, setLocation] = useLocation();
   const [term, setTerm] = useState('');
-  const [city, setCity] = useState('Goma');
-  const [radiusKm, setRadiusKm] = useState(10);
-  const [view, setView] = useState<'list'|'map'>('list');
-  const results = useMemo(() => city === 'Goma' ? rankMatches(data, term, '', radiusKm) : [], [data,term,city,radiusKm]);
-  const homeCategories = homeCategoryOrder.flatMap(item => {
-    const category = data.categories.find(value => value.id === item.id);
-    return category ? [{ ...item, category }] : [];
-  });
-  const additionalCategories = data.categories
-    .filter(category => !homeCategoryOrder.some(item => item.id === category.id))
-    .map(category => ({ category, Icon: Wrench, imagePosition: 'center' }));
-  const toggleFavorite = (id: string) => setData(prev => ({ ...prev, favorites: prev.favorites.some(f => f.professionalId === id) ? prev.favorites.filter(f => f.professionalId !== id) : [...prev.favorites, { professionalId:id }] }));
+  const [submittedTerm, setSubmittedTerm] = useState('');
+  const [neighborhood, setNeighborhood] = useState('');
+  const [availableOnly, setAvailableOnly] = useState(false);
+  const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [results, setResults] = useState<LiveSearchRecord[]>([]);
+  const [mediaByProfessional, setMediaByProfessional] = useState<Record<string, ProfessionalMedia>>({});
+  const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
+  const [userId, setUserId] = useState('');
+  const [userRole, setUserRole] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [actionMessage, setActionMessage] = useState('');
+
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    void (async () => {
+      setLoading(true);
+      setError('');
+      const [{ data: searchRows, error: searchError }, { data: categoryRows, error: categoryError }, { data: auth }] = await Promise.all([
+        supabase.rpc('search_professionals', {
+          p_query: submittedTerm.trim() || null,
+          p_latitude: null,
+          p_longitude: null,
+          p_radius_meters: 20000,
+          p_available_only: availableOnly,
+          p_neighborhood: neighborhood || null,
+        }),
+        supabase.from('categories').select('id, name').order('name'),
+        supabase.auth.getUser(),
+      ]);
+      if (!active) return;
+      if (searchError) setError(searchError.message);
+      else {
+        const publicResults = (searchRows ?? []) as LiveSearchRecord[];
+        setResults(publicResults);
+        if (publicResults.length) {
+          const { data: mediaRows, error: mediaError } = await supabase.from('professionals').select('profile_id, avatar_path, portfolio_paths').in('profile_id',publicResults.map(row=>row.profile_id));
+          if (!active) return;
+          if (mediaError) setError(mediaError.message);
+          else setMediaByProfessional(Object.fromEntries((mediaRows??[]).map(row=>[row.profile_id,{avatar_path:row.avatar_path,portfolio_paths:row.portfolio_paths??[]}])));
+        } else setMediaByProfessional({});
+      }
+      if (categoryError) setError(categoryError.message);
+      else setCategories(categoryRows ?? []);
+      if (auth.user) {
+        setUserId(auth.user.id);
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', auth.user.id).maybeSingle();
+        if (!active) return;
+        setUserRole(profile?.role ?? '');
+        if (profile?.role === 'client') {
+          const { data: favorites } = await supabase.from('favorites').select('professional_id').eq('client_id', auth.user.id);
+          if (active) setFavoriteIds((favorites ?? []).map(item => item.professional_id));
+        }
+      } else {
+        setUserId('');
+        setUserRole('');
+        setFavoriteIds([]);
+      }
+      setLoading(false);
+    })().catch(cause => {
+      if (active) { setError(cause instanceof Error ? cause.message : 'Impossible de charger les professionnels.'); setLoading(false); }
+    });
+    return () => { active = false; };
+  }, [submittedTerm, neighborhood, availableOnly]);
+
+  const toggleFavorite = async (professionalId: string) => {
+    if (!supabase) return;
+    if (!userId) { setLocation('/connexion'); return; }
+    if (userRole !== 'client') { setActionMessage('Les favoris sont disponibles avec un compte client.'); return; }
+    setActionMessage('');
+    const isSaved = favoriteIds.includes(professionalId);
+    const response = isSaved
+      ? await supabase.from('favorites').delete().eq('client_id', userId).eq('professional_id', professionalId)
+      : await supabase.from('favorites').insert({ client_id: userId, professional_id: professionalId });
+    if (response.error) { setActionMessage(response.error.message); return; }
+    setFavoriteIds(current => isSaved ? current.filter(id => id !== professionalId) : [...current, professionalId]);
+  };
+
   return <div className="page-enter">
-    <section className="home-hero relative overflow-hidden bg-[#eff5ff] text-[#12294b]">
-      <div aria-hidden="true" className="home-hero-photo absolute inset-x-0 top-0 h-48 bg-no-repeat sm:h-56 md:h-60 lg:inset-y-0 lg:left-auto lg:right-0 lg:h-auto lg:w-[56%]" style={{ backgroundImage: "url('/Smiling%20Team%20in%20Modern%20Workshop.png')", backgroundPosition: 'center', backgroundSize: 'cover' }}>
-        <span className="absolute inset-0 bg-gradient-to-l from-transparent via-transparent to-[#eff5ff]"/>
-      </div>
-      <div className="relative z-10 mx-auto min-h-[360px] max-w-[1690px] px-5 pb-6 pt-52 sm:px-7 sm:pb-8 sm:pt-64 md:pt-68 lg:flex lg:min-h-[460px] lg:flex-col lg:justify-center lg:px-[4.2%] lg:py-10">
-        <div className="home-hero-copy max-w-[670px] lg:max-w-[48%]">
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#d7e5f7] bg-white/80 px-3.5 py-2 text-xs font-bold text-[#174572] shadow-sm"><span className="h-2 w-2 rounded-full bg-[#f3b52f]"/>Services de proximité · Goma</div>
-          <h1 className="max-w-[650px] font-sans text-[38px] font-extrabold leading-[1.04] tracking-[-1.5px] text-[#102448] sm:text-[52px] lg:text-[60px]">Trouvez facilement<br/>le bon professionnel<br/><span className="text-[#0758d5]">à Goma !</span></h1>
-          <p className="mt-4 max-w-[530px] text-sm leading-6 text-[#263b5a] sm:text-base sm:leading-7"><strong>KaziGoma</strong> est votre plateforme de services de proximité. Cherchez, comparez et contactez des professionnels fiables dans votre quartier.</p>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              document.getElementById('results')?.scrollIntoView({ behavior: 'smooth' });
-            }}
-            className="mt-7 w-full max-w-[760px] rounded-[26px] border border-[#dceaff] bg-white/80 p-2.5 shadow-[0_18px_30px_rgba(13,94,189,0.12)] backdrop-blur-sm"
-          >
-            <div className="grid gap-2 rounded-[20px] bg-white p-2 sm:grid-cols-[1.5fr_1fr_0.8fr_auto] sm:items-center">
-              <label className="flex items-center gap-2 rounded-[16px] border border-[#e6edf5] bg-[#f7fafd] px-3 py-2.5 text-[#1f426d] shadow-inner shadow-[#edf3fa]">
-                <Search size={16} className="text-[#1f6ed4]" />
-                <input
-                  value={term}
-                  onChange={(e) => setTerm(e.target.value)}
-                  placeholder="Ex. Plombier, Électricien..."
-                  className="w-full border-0 bg-transparent text-sm font-medium text-[#1d2e42] placeholder:text-[#6d7e90] focus:outline-none"
-                  aria-label="Rechercher un service"
-                />
-              </label>
-
-              <label className="flex items-center gap-2 rounded-[16px] border border-[#e6edf5] bg-[#f7fafd] px-3 py-2.5 text-[#1f426d] shadow-inner shadow-[#edf3fa]">
-                <MapPin size={16} className="text-[#1f6ed4]" />
-                <select value={city} onChange={event => setCity(event.target.value)} className="w-full appearance-none border-0 bg-transparent text-sm font-medium text-[#1d2e42] focus:outline-none" aria-label="Sélectionner une ville">
-                  <option value="Goma">Goma</option>
-                  <option value="Bukavu">Bukavu</option>
-                  <option value="Kinshasa">Kinshasa</option>
-                </select>
-                <ChevronDown size={14} className="text-[#526d8a]" />
-              </label>
-
-              <label className="flex items-center justify-between gap-2 rounded-[16px] border border-[#e6edf5] bg-[#f7fafd] px-3 py-2.5 text-[#1f426d] shadow-inner shadow-[#edf3fa]">
-                <span className="flex items-center gap-2">
-                  <MapPin size={15} className="text-[#1f6ed4]" />
-                  <span className="text-sm font-medium text-[#1d2e42]">Rayon</span>
-                </span>
-                <select value={radiusKm} onChange={event => setRadiusKm(Number(event.target.value))} className="appearance-none border-0 bg-transparent pr-1 text-sm font-medium text-[#1d2e42] focus:outline-none" aria-label="Choisir un rayon">
-                  <option value={5}>5 km</option>
-                  <option value={10}>10 km</option>
-                  <option value={20}>20 km</option>
-                  <option value={50}>50 km</option>
-                </select>
-              </label>
-
-              <button
-                type="submit"
-                className="inline-flex items-center justify-center gap-2 rounded-[16px] bg-[#0d5ebd] px-5 py-3 text-sm font-extrabold text-white shadow-[0_12px_22px_rgba(13,94,189,0.28)] transition hover:bg-[#0b4fa5]"
-              >
-                <Search size={17} />
-                Rechercher
-              </button>
-            </div>
+    <section className="relative overflow-hidden bg-[#eff5ff] text-[#12294b]">
+      <div aria-hidden="true" className="absolute inset-y-0 right-0 hidden w-[52%] bg-cover bg-center lg:block" style={{ backgroundImage: "url('/Smiling%20Team%20in%20Modern%20Workshop.png')" }}><span className="absolute inset-0 bg-gradient-to-l from-transparent to-[#eff5ff]"/></div>
+      <div className="relative mx-auto max-w-[1690px] px-5 py-12 sm:px-7 sm:py-16 lg:px-[4.2%] lg:py-20">
+        <div className="max-w-2xl"><div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#d7e5f7] bg-white/80 px-3.5 py-2 text-xs font-bold text-[#174572]"><span className="h-2 w-2 rounded-full bg-[#f3b52f]"/>Services de proximité · Goma</div><h1 className="font-sans text-4xl font-extrabold leading-tight tracking-tight text-[#102448] sm:text-6xl">Trouvez un professionnel <span className="text-[#0758d5]">vérifié à Goma</span></h1><p className="mt-4 max-w-xl text-sm leading-6 text-[#263b5a] sm:text-base">Parcourez les profils publics sans créer de compte. Connectez-vous seulement si vous souhaitez enregistrer un favori ou envoyer une demande.</p>
+          <form onSubmit={event=>{event.preventDefault();setSubmittedTerm(term)}} className="mt-7 grid gap-2 rounded-2xl border border-[#dceaff] bg-white p-3 shadow-[0_18px_30px_rgba(13,94,189,0.12)] sm:grid-cols-[1.3fr_1fr_auto]">
+            <label className="flex items-center gap-2 rounded-xl border border-[#e6edf5] bg-[#f7fafd] px-3 py-3 text-[#1f426d]"><Search size={16}/><input value={term} onChange={event=>setTerm(event.target.value)} placeholder="Métier ou compétence" className="w-full bg-transparent text-sm outline-none" aria-label="Rechercher un professionnel"/></label>
+            <label className="flex items-center gap-2 rounded-xl border border-[#e6edf5] bg-[#f7fafd] px-3 py-3 text-[#1f426d]"><MapPin size={16}/><select value={neighborhood} onChange={event=>setNeighborhood(event.target.value)} className="w-full bg-transparent text-sm outline-none" aria-label="Filtrer par quartier"><option value="">Tous les quartiers</option>{neighborhoods.map(place=><option key={place}>{place}</option>)}</select></label>
+            <button className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#0d5ebd] px-5 py-3 text-sm font-extrabold text-white hover:bg-[#0b4fa5]"><Search size={17}/>Rechercher</button>
           </form>
-        </div>
-        <div className="home-hero-trust mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-semibold text-[#19375d] sm:mt-6 sm:gap-x-7 sm:text-sm">
-          <span className="inline-flex items-center gap-2"><ShieldCheck size={18} className="text-[#0758d5]"/>Professionnels vérifiés</span>
-          <span className="inline-flex items-center gap-2"><Clock3 size={18} className="text-[#0758d5]"/>Réponse rapide</span>
-          <span className="inline-flex items-center gap-2"><MapPin size={18} className="text-[#0758d5]"/>Proches de chez vous</span>
+          <label className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-[#24415e]"><input type="checkbox" checked={availableOnly} onChange={event=>setAvailableOnly(event.target.checked)} className="accent-[#0d5ebd]"/>Afficher seulement les professionnels disponibles</label>
         </div>
       </div>
     </section>
-    <div className="mx-auto max-w-[1690px] px-4 pt-5 sm:px-7 lg:px-[4.2%]">
-      <section aria-label="Les atouts de KaziGoma" className="grid overflow-hidden rounded-2xl bg-white shadow-[0_8px_24px_rgba(16,56,94,.08)] lg:grid-cols-[1.6fr_1fr]">
-        <div className="grid grid-cols-2 divide-x divide-y divide-[#e3eaf0] sm:grid-cols-4 sm:divide-y-0">
-          <div className="flex flex-col items-center justify-center gap-2 px-2 py-4 text-center sm:flex-row sm:gap-3 sm:px-3"><ShieldCheck size={24} className="shrink-0 text-[#0758d5]"/><span className="text-[11px] font-bold leading-4 text-[#19375d] sm:text-xs">Professionnels vérifiés</span></div>
-          <div className="flex flex-col items-center justify-center gap-2 px-2 py-4 text-center sm:flex-row sm:gap-3 sm:px-3"><MapPin size={24} className="shrink-0 fill-[#5b92d1] text-[#5b92d1]"/><span className="text-[11px] font-bold leading-4 text-[#19375d] sm:text-xs">Proches de chez vous</span></div>
-          <div className="flex flex-col items-center justify-center gap-2 px-2 py-4 text-center sm:flex-row sm:gap-3 sm:px-3"><Zap size={24} className="shrink-0 fill-[#f4b52f] text-[#f4b52f]"/><span className="text-[11px] font-bold leading-4 text-[#19375d] sm:text-xs">Réponse rapide</span></div>
-          <div className="flex flex-col items-center justify-center gap-2 px-2 py-4 text-center sm:flex-row sm:gap-3 sm:px-3"><Star size={24} className="shrink-0 fill-[#f4b52f] text-[#f4b52f]"/><span className="text-[11px] font-bold leading-4 text-[#19375d] sm:text-xs">Avis clients</span></div>
-        </div>
-        <div className="flex min-h-[88px] items-center justify-center gap-4 bg-[#082f68] px-5 py-4 text-white">
-          <Compass size={42} strokeWidth={1.4} className="shrink-0 text-[#b8d5ff]"/>
-          <div><h2 className="text-sm font-extrabold">Goma, notre ville</h2><p className="mt-1 max-w-xs text-xs leading-4 text-blue-100">Ensemble, construisons une ville plus connectée !</p></div>
-          <Heart size={20} className="shrink-0 text-white"/>
-        </div>
-      </section>
-      <section aria-labelledby="home-categories-heading" className="py-6 sm:py-7">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h2 id="home-categories-heading" className="border-l-4 border-[#0758d5] pl-3 font-sans text-xl font-extrabold tracking-tight text-[#122448] sm:text-2xl">Nos catégories de services</h2>
-          <button onClick={()=>document.getElementById('results')?.scrollIntoView({behavior:'smooth'})} className="inline-flex items-center gap-1 text-xs font-bold text-[#0758d5] transition hover:text-[#0648ae] sm:text-sm">Voir tous les professionnels <ArrowRight size={16}/></button>
-        </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
-          {[...homeCategories, ...additionalCategories].map(({ category, Icon, imagePosition }) => <button key={category.id} onClick={()=>{setTerm(category.label);document.getElementById('results')?.scrollIntoView({behavior:'smooth'});}} className="group overflow-hidden rounded-2xl border border-[#e3e9ef] bg-white text-left shadow-[0_3px_9px_rgba(16,56,94,.08)] transition duration-200 hover:-translate-y-1 hover:border-[#b7d0f0] hover:shadow-[0_10px_20px_rgba(16,56,94,.13)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0758d5]" aria-label={`Rechercher : ${category.label}`}>
-            <span className="relative flex h-[92px] items-center justify-center bg-cover sm:h-[112px]" style={{ backgroundImage: "url('/Professional%20Services%20Marketplace%20Collage.png')", backgroundPosition: imagePosition, backgroundSize: '500% 500%' }}><span aria-hidden="true" className="absolute inset-0 bg-[#102f4d]/25 transition-colors group-hover:bg-[#102f4d]/10"/><Icon size={38} strokeWidth={1.8} className="relative text-white drop-shadow-md transition-transform duration-200 group-hover:scale-110"/></span>
-            <span className="flex min-h-11 items-center gap-2 px-3 text-xs font-extrabold text-[#142b4d] sm:min-h-12 sm:text-sm"><Icon size={16} className="shrink-0 text-[#0758d5]"/><span className="line-clamp-2">{category.label}</span></span>
-          </button>)}
-        </div>
-      </section>
-    </div>
     <div className="mx-auto max-w-[1690px] px-4 sm:px-7 lg:px-[4.2%]">
-      <section id="results" className="pb-8">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div><h2 className="font-serif text-xl font-extrabold text-[#183451]">{results.length} professionnel{results.length===1?'':'s'} à proximité</h2><p className="mt-1 text-xs text-[#778591]">Classés selon vos critères et la distance approximative.</p></div>
-          <div className="flex rounded-lg border border-[#dfe5e7] bg-white p-1"><button onClick={()=>setView('list')} className={`rounded-md px-3 py-1.5 text-xs font-bold ${view==='list'?'bg-[#183451] text-white':'text-[#526578]'}`}>Liste</button><button onClick={()=>setView('map')} className={`rounded-md px-3 py-1.5 text-xs font-bold ${view==='map'?'bg-[#183451] text-white':'text-[#526578]'}`}>Carte</button></div>
-        </div>
-        {view==='map' && <ProfessionalMap professionals={results.map(({ profile, pro }) => ({ profileId: pro.profileId, name: profile.name, neighborhood: profile.neighborhood, latitude: pro.latitude, longitude: pro.longitude }))}/>}
-        {!results.length ? <div className="rounded-2xl border border-dashed border-[#cbd5da] bg-white px-5 py-14 text-center"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#edf2f4] text-[#35546d]"><Search size={21}/></div><h3 className="mt-4 font-serif text-lg font-bold text-[#183451]">Aucun professionnel disponible pour le moment</h3><p className="mx-auto mt-1 max-w-sm text-sm text-[#74818b]">Les profils réels apparaîtront ici lorsqu’ils auront été ajoutés et validés.</p><button onClick={()=>setTerm('')} className="mt-4 rounded-lg border border-[#dbe2e5] px-4 py-2 text-xs font-bold text-[#284b68]">Afficher toutes les catégories</button></div> :
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{results.map((item,i)=><ProfessionalCard key={item.pro.profileId} item={item} rank={i+1} saved={data.favorites.some(f=>f.professionalId===item.pro.profileId)} onFavorite={()=>toggleFavorite(item.pro.profileId)}/>)}</div>}
+      <section className="py-7" aria-labelledby="live-categories-title"><div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 id="live-categories-title" className="border-l-4 border-[#0758d5] pl-3 text-xl font-extrabold text-[#122448]">Métiers disponibles</h2><span className="text-xs font-semibold text-[#71808b]">{categories.length} catégories</span></div><div className="flex flex-wrap gap-2">{categories.map(category=><button key={category.id} onClick={()=>{setTerm(category.name);setSubmittedTerm(category.name)}} className="rounded-full border border-[#d7e2ec] bg-white px-3.5 py-2 text-xs font-bold text-[#34516d] transition hover:border-[#0d5ebd] hover:text-[#0d5ebd]">{category.name}</button>)}</div></section>
+      <section id="results" className="pb-10"><div className="mb-4 flex flex-wrap items-end justify-between gap-3"><div><h2 className="font-serif text-2xl font-extrabold text-[#183451]">Professionnels vérifiés</h2><p className="mt-1 text-xs text-[#778591]">Les profils ne sont publiés qu’après validation par l’administration.</p></div><span className="rounded-full bg-[#edf4fc] px-3 py-1.5 text-xs font-bold text-[#174572]">{results.length} résultat{results.length===1?'':'s'}</span></div>
+        {actionMessage&&<p role="status" className="mb-4 rounded-lg bg-[#f3f6f7] p-3 text-xs text-[#526575]">{actionMessage}</p>}
+        {error&&<p role="alert" className="mb-4 rounded-lg border border-[#f0d8d4] bg-[#fff8f6] p-3 text-sm text-[#9f5145]">Impossible de charger les profils. {error}</p>}
+        {loading?<div className="rounded-2xl border border-[#e0e6e8] bg-white p-10 text-center text-sm text-[#647384]">Recherche des professionnels…</div>:results.length===0?<div className="rounded-2xl border border-dashed border-[#cbd5da] bg-white px-5 py-14 text-center"><Search size={22} className="mx-auto text-[#35546d]"/><h3 className="mt-4 font-serif text-lg font-bold text-[#183451]">Aucun profil vérifié pour ces critères</h3><p className="mx-auto mt-1 max-w-md text-sm text-[#74818b]">Les comptes professionnels apparaîtront ici après l’envoi d’une fiche et sa validation par l’administration.</p><Link href="/inscription" className="mt-4 inline-flex rounded-lg bg-[#183451] px-4 py-2.5 text-xs font-bold text-white">Inscrire une activité</Link></div>:<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{results.map(pro=><article key={pro.profile_id} className="relative rounded-2xl border border-[#e4ebf3] bg-white p-5 shadow-[0_5px_16px_rgba(24,52,81,0.07)]"><div className="flex items-start gap-3"><div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#eaf2fb] text-sm font-extrabold text-[#174572]">{mediaByProfessional[pro.profile_id]?.avatar_path?<img src={professionalMediaUrl(mediaByProfessional[pro.profile_id].avatar_path)} alt={`Photo de ${pro.display_name}`} className="h-full w-full object-cover"/>:pro.display_name.split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</div><div className="min-w-0 flex-1"><h3 className="truncate text-base font-extrabold text-[#102448]">{pro.display_name}</h3><p className="mt-1 text-xs font-semibold text-[#a57934]">{pro.category_name}</p><p className="mt-1 flex items-center gap-1 text-xs text-[#60738d]"><MapPin size={13}/>{pro.neighborhood || 'Goma'}</p></div><button onClick={()=>void toggleFavorite(pro.profile_id)} aria-label={favoriteIds.includes(pro.profile_id)?'Retirer des favoris':'Ajouter aux favoris'} className={`rounded-full p-2 ${favoriteIds.includes(pro.profile_id)?'text-[#e44962]':'text-[#58708f] hover:text-[#e44962]'}`}><Heart size={18} fill={favoriteIds.includes(pro.profile_id)?'currentColor':'none'}/></button></div><p className="mt-4 line-clamp-3 text-sm leading-5 text-[#526575]">{pro.description}</p><div className="mt-3 flex flex-wrap gap-1.5">{(pro.skills??[]).slice(0,4).map(skill=><span key={skill} className="rounded-full bg-[#eaf2ff] px-2.5 py-1 text-[10px] font-semibold text-[#164b96]">{skill}</span>)}</div><div className="mt-4 flex items-center justify-between border-t border-[#edf1f6] pt-3"><div className="text-xs font-bold text-[#29445c]">{pro.indicative_rate == null ? 'Sur devis' : `${Number(pro.indicative_rate).toLocaleString('fr-FR')} ${pro.rate_currency}`}<div className="mt-1 font-normal text-[#71808b]">{pro.review_count ? `${Number(pro.average_rating).toFixed(1)} · ${pro.review_count} avis` : 'Pas encore d’avis'}</div></div><Link href={`/professionnels/${pro.profile_id}`} className="rounded-full border border-[#2678ff] px-3 py-2 text-xs font-bold text-[#0758d5] hover:bg-[#0758d5] hover:text-white">Voir le profil</Link></div><div className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[#e4f7eb] px-2.5 py-1 text-[10px] font-bold text-[#168447]"><span className="h-1.5 w-1.5 rounded-full bg-[#16a05b]"/>{pro.available?'Disponible':'Sur demande'}</div></article>)}</div>}
       </section>
-      <p className="mb-5 text-center text-xs text-[#778591]">Les profils seront affichés ici après leur ajout et leur validation.</p>
     </div>
   </div>;
-}
-
-function ProfessionalCard({ item, rank, saved, onFavorite }: { item: RankedProfessional; rank: number; saved: boolean; onFavorite:()=>void }) {
-  return <article className="relative flex min-w-0 gap-3 rounded-2xl border border-[#e4ebf3] bg-white p-3.5 shadow-[0_5px_16px_rgba(24,52,81,0.07)] transition hover:-translate-y-0.5 hover:border-[#bfd5f5] hover:shadow-[0_12px_26px_rgba(24,52,81,0.11)] sm:gap-4 sm:p-4" data-testid={`card-professional-${item.pro.profileId}`}>
-    <div className="relative mt-0.5 self-start">
-      <ProfessionalPortrait profileId={item.pro.profileId} name={item.profile.name} avatar={item.profile.avatar}/>
-      <span aria-hidden="true" className="absolute bottom-2 right-1 h-3.5 w-3.5 rounded-full border-2 border-white bg-[#14b86a]"/>
-    </div>
-    <div className="min-w-0 flex-1 pr-7">
-      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
-        <h3 className="font-sans text-[15px] font-extrabold leading-5 text-[#102448] sm:text-base">{item.profile.name}</h3>
-        <span title="Profil de démonstration non vérifié" className="inline-flex items-center gap-1 rounded-full bg-[#eef3f8] px-1.5 py-0.5 text-[8px] font-bold leading-3 text-[#61758d]"><Info size={10}/>Non vérifié</span>
-      </div>
-      <p className="mt-1 text-[11px] font-semibold leading-4 text-[#19375d] sm:text-xs"><span className="mr-1 text-[#f2a900]">•</span>{item.pro.trade}<span className="px-1.5 text-[#f2a900]">•</span><span className="text-[#b56a00]">{item.pro.experienceYears} ans d’expérience</span></p>
-      <p className="mt-1 flex items-center gap-1 text-[10px] leading-4 text-[#506783] sm:text-[11px]"><MapPin size={13} className="shrink-0 text-[#2678e5]"/>{item.profile.neighborhood}<span className="px-0.5">·</span>{item.km.toFixed(1)} km environ</p>
-      <p className="mt-2 line-clamp-2 text-[11px] leading-4 text-[#314967] sm:text-xs">{item.pro.description}</p>
-      <div className="mt-2 flex flex-wrap gap-1.5">{item.pro.skills.slice(0,3).map(skill=><span key={skill} className="max-w-full truncate rounded-full bg-[#eaf2ff] px-2 py-1 text-[9px] font-semibold leading-3 text-[#164b96] sm:text-[10px]">{skill}</span>)}</div>
-      <div className="mt-2.5 flex flex-wrap items-end justify-between gap-x-3 gap-y-2 border-t border-[#edf1f6] pt-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1 text-[11px] font-bold text-[#263b5a]">{item.pro.reviewCount ? <><Star size={14} className="fill-[#f4ad19] text-[#f4ad19]"/>{item.pro.ratingAverage.toFixed(1)} <span className="font-normal text-[#60738d]">({item.pro.reviewCount} avis)</span></> : <span className="font-medium text-[#718096]">Avis indisponibles</span>}</div>
-          <div className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full bg-[#e4f7eb] px-2 py-1 text-[9px] font-bold leading-3 text-[#168447] sm:text-[10px]"><span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#16a05b]"/>{item.pro.availability}</div>
-        </div>
-        <Link href={`/professionnels/${item.pro.profileId}`} className="ml-auto inline-flex min-h-8 items-center justify-center gap-2 rounded-full border border-[#2678ff] bg-white px-3 text-[10px] font-bold text-[#0758d5] transition hover:bg-[#0758d5] hover:text-white sm:text-[11px]" data-testid={`link-profile-${item.pro.profileId}`}>Voir le profil <ArrowRight size={14}/></Link>
-      </div>
-    </div>
-    <button onClick={onFavorite} aria-label={saved?'Retirer des favoris':'Ajouter aux favoris'} className={`absolute right-2.5 top-2.5 rounded-full p-1.5 transition ${saved?'text-[#e44962]':'text-[#58708f] hover:bg-[#f0f5fc] hover:text-[#e44962]'}`} data-testid={`button-favorite-${item.pro.profileId}`}><Heart size={20} fill={saved?'currentColor':'none'}/></button>
-  </article>;
 }
 
 function ProfessionalPage({ params }: { params: { id: string } }) {
-  const { data, setData } = useDemo();
-  const [sent, setSent] = useState(false);
-  const [showDemoPhone, setShowDemoPhone] = useState(false);
-  const [description, setDescription] = useState('');
-  const [neighborhood, setNeighborhood] = useState('Himbi');
-  const [name, setName] = useState('');
-  const [error, setError] = useState('');
-  const [reportReason, setReportReason] = useState('');
-  const [showReport, setShowReport] = useState(false);
-  const [reportSaved, setReportSaved] = useState(false);
-  const pro = data.professionals.find(p=>p.profileId===params.id);
-  const profile = data.profiles.find(p=>p.id===params.id);
-  if(!pro||!profile||pro.suspended) return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle title="Profil introuvable" text="Ce professionnel n’est pas disponible."/><Link href="/" className="font-bold text-[#294d6a]">Retour à la recherche</Link></div>;
-  const favorite=data.favorites.some(f=>f.professionalId===pro.profileId);
-  const submit=(e:FormEvent)=>{e.preventDefault();if(description.trim().length<12){setError('Décrivez votre besoin en au moins 12 caractères.');return;}if(!name.trim()){setError('Indiquez votre nom pour la demande démo.');return;}setData(prev=>({...prev,requests:[{id:`r${Date.now()}`,clientName:name.trim(),professionalId:pro.profileId,description:description.trim(),neighborhood,status:'En attente',createdAt:new Date().toLocaleDateString('fr-FR')},...prev.requests]}));setSent(true);setError('');};
-  return <div className="page-enter mx-auto max-w-[1080px] px-4 py-8 sm:px-7 sm:py-12"><Link href="/" className="mb-6 inline-flex items-center gap-2 text-xs font-bold text-[#617383]"><ArrowLeft size={15}/> Retour aux résultats</Link>
-    <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
-      <div>
-        <section className="rounded-2xl border border-[#e0e6e8] bg-white p-5 sm:p-7">
-           <div className="flex flex-wrap items-start gap-4"><Avatar profile={profile} large/><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h1 className="font-serif text-2xl font-extrabold text-[#183451] sm:text-3xl">{profile.name}</h1><span className="rounded-full bg-[#eef3f5] px-2.5 py-1 text-[10px] font-bold text-[#526c7d]">Profil fictif · non vérifié</span></div><p className="mt-1 font-semibold text-[#a57934]">{pro.trade}</p><p className="mt-2 flex items-center gap-1 text-xs text-[#71808c]"><MapPin size={13}/>{profile.neighborhood} · intervient à {pro.serviceArea.join(', ')}</p></div><button onClick={()=>setData(prev=>({...prev,favorites:favorite?prev.favorites.filter(f=>f.professionalId!==pro.profileId):[...prev.favorites,{professionalId:pro.profileId}]}))} className="flex items-center gap-2 rounded-lg border border-[#e0e6e8] px-3 py-2 text-xs font-bold text-[#536a7c]"><Heart size={15} fill={favorite?'currentColor':'none'}/>{favorite?'Enregistré':'Enregistrer'}</button></div>
-          <DemoNote>Statut de profil et éléments présentés à titre fictif. KaziGoma n’a effectué aucune vérification d’identité.</DemoNote>
-          <div className="mt-6 grid grid-cols-2 gap-3"><Metric label="Expérience" value={`${pro.experienceYears} ans`}/><Metric label="Disponibilité" value={pro.availability}/></div>
-          <h2 className="mt-7 font-serif text-lg font-bold text-[#183451]">À propos</h2><p className="mt-2 text-sm leading-6 text-[#596b79]">{pro.description}</p>
-          <h2 className="mt-6 font-serif text-lg font-bold text-[#183451]">Compétences</h2><div className="mt-3 flex flex-wrap gap-2">{pro.skills.map(s=><span key={s} className="rounded-full bg-[#edf2f4] px-3 py-1.5 text-xs font-semibold text-[#425c70]">{s}</span>)}</div>
-           <h2 className="mt-6 font-serif text-lg font-bold text-[#183451]">Zone d’intervention</h2><div className="mt-3 flex flex-wrap gap-2">{pro.serviceArea.map(a=><span key={a} className="flex items-center gap-1.5 rounded-lg border border-[#e3e8e9] px-3 py-2 text-xs text-[#566a79]"><MapPin size={13}/>{a}</span>)}</div>
-           <h2 className="mt-6 font-serif text-lg font-bold text-[#183451]">Réalisations de démonstration</h2><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">{pro.portfolio.map((item,index)=>item.startsWith('data:image/')?<img key={`${pro.profileId}-portfolio-${index}`} src={item} alt="Photo fictive ajoutée pour la démonstration" className="aspect-square w-full rounded-xl border border-[#e3e8e9] object-cover"/>:<div key={`${pro.profileId}-portfolio-${index}`} className="flex min-h-24 items-end rounded-xl border border-[#e3e8e9] bg-[#f1f5f5] p-3 text-xs font-semibold text-[#526779]">{item}</div>)}</div><p className="mt-2 text-[10px] text-[#849098]">Images locales de démonstration uniquement ; aucune photo n’est envoyée à un serveur.</p>
-          <h2 className="mt-6 font-serif text-lg font-bold text-[#183451]">Avis de démonstration</h2><div className="mt-3 space-y-2">{data.reviews.filter(r=>r.professionalId===pro.profileId).map((r,i)=><div key={i} className="rounded-xl bg-[#f5f7f7] p-3"><div className="flex items-center justify-between"><div className="flex gap-0.5 text-[#d19e42]">{Array.from({length:r.rating},(_,k)=><Star key={k} size={13} fill="currentColor"/>)}</div><span className="text-[9px] font-bold uppercase tracking-wider text-[#89949b]">Avis fictif</span></div><p className="mt-2 text-xs text-[#5b6b78]">{r.comment}</p></div>)}{!pro.reviewCount&&<p className="text-sm text-[#77838b]">Aucun avis disponible dans ce profil démo.</p>}</div>
-        </section>
-      </div>
-      <aside className="h-fit rounded-2xl border border-[#e0e6e8] bg-white p-5 lg:sticky lg:top-24">
-        <div className="flex items-center justify-between"><div><div className="text-[10px] font-extrabold uppercase tracking-[.15em] text-[#a57934]">Prendre contact</div><h2 className="mt-1 font-serif text-xl font-extrabold text-[#183451]">Décrire votre besoin</h2></div><Phone size={20} className="text-[#a57934]"/></div>
-        {sent?<div className="mt-5 rounded-xl bg-[#eef5ef] p-4"><div className="flex items-center gap-2 font-bold text-[#3b684b]"><Check size={17}/>Demande ajoutée à la démo</div><p className="mt-2 text-xs leading-5 text-[#56715f]">Elle est enregistrée localement dans votre espace client. Aucune notification n’a été envoyée.</p><button onClick={()=>{setSent(false);setDescription('')}} className="mt-3 text-xs font-bold text-[#31563e]">Créer une autre demande</button></div>:<form onSubmit={submit} className="mt-5 space-y-3">
-          <label className="block text-xs font-bold text-[#506273]">Votre nom<input value={name} onChange={e=>setName(e.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7843]" placeholder="Nom de démonstration" data-testid="input-client-name"/></label>
-          <label className="block text-xs font-bold text-[#506273]">Votre quartier<select value={neighborhood} onChange={e=>setNeighborhood(e.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] bg-white px-3 py-2.5 text-sm font-normal outline-none" data-testid="select-request-neighborhood">{neighborhoods.map(n=><option key={n}>{n}</option>)}</select></label>
-          <label className="block text-xs font-bold text-[#506273]">Votre besoin<textarea value={description} onChange={e=>setDescription(e.target.value)} rows={4} className="mt-1.5 w-full resize-y rounded-lg border border-[#dfe5e8] px-3 py-2.5 text-sm font-normal outline-none focus:border-[#9a7843]" placeholder="Décrivez le travail et le moment souhaité…" data-testid="textarea-request"/></label>
-          {error&&<p className="text-xs text-[#a34436]">{error}</p>}<button className="w-full rounded-lg bg-[#183451] py-3 text-sm font-bold text-white hover:bg-[#274967]" data-testid="button-send-request">Enregistrer la demande démo</button><p className="text-center text-[10px] leading-4 text-[#82909a]">Essai local uniquement : aucun message réel ne sera envoyé.</p>
-        </form>}
-         <button type="button" onClick={()=>setShowDemoPhone(!showDemoPhone)} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-[#dfe5e8] py-2.5 text-xs font-bold text-[#284b68]"><Phone size={14}/>{showDemoPhone?'Masquer le numéro fictif':'Afficher le numéro fictif'}</button>{showDemoPhone&&<p className="mt-2 text-center text-xs text-[#71808c]">{profile.phone} · numéro de démonstration non attribué</p>}
-         <div className="mt-5 border-t border-[#edf0f1] pt-4">
-           {reportSaved ? <p className="text-xs text-[#42674d]">Signalement fictif enregistré dans cette démo.</p> : <>
-             <button type="button" onClick={()=>setShowReport(!showReport)} className="text-xs font-semibold text-[#8b5144]">{showReport?'Annuler':'Signaler ce profil (démo)'}</button>
-             {showReport&&<form onSubmit={e=>{e.preventDefault();if(reportReason.trim().length<3)return;setData(prev=>({...prev,reports:[{id:`report-${Date.now()}`,professionalId:pro.profileId,reason:reportReason.trim(),status:'Ouvert',createdAt:new Date().toLocaleDateString('fr-FR')},...prev.reports]}));setReportSaved(true);setReportReason('')}} className="mt-3 space-y-2">
-               <label className="block text-[11px] font-semibold text-[#697681]">Motif du signalement<textarea value={reportReason} onChange={e=>setReportReason(e.target.value)} minLength={3} maxLength={500} required rows={3} className="mt-1 w-full rounded-lg border border-[#dfe5e8] px-3 py-2 text-xs outline-none focus:border-[#9a7843]" placeholder="Décrivez brièvement le problème"/></label>
-               <button className="rounded-lg border border-[#ead4d0] px-3 py-2 text-[11px] font-bold text-[#8b5144]">Enregistrer le signalement fictif</button>
-               <p className="text-[10px] leading-4 text-[#849098]">Aucun signalement réel ne sera transmis.</p>
-             </form>}
-           </>}
-         </div>
-      </aside>
-    </div>
-  </div>;
+  if (supabase) return <LiveProfessionalPage params={params} />;
+  return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Profil indisponible" title="Connexion à la base requise" text="Cette page affiche uniquement les fiches enregistrées dans Supabase. Vérifiez la configuration du site puis réessayez."/><Link href="/" className="inline-flex rounded-lg bg-[#183451] px-4 py-3 text-sm font-bold text-white">Retour à l’accueil</Link></div>;
 }
+
+function LiveProfessionalPage({ params }: { params: { id: string } }) {
+  const [, setLocation] = useLocation();
+  const [professional, setProfessional] = useState<LiveSearchRecord | null>(null);
+  const [media, setMedia] = useState<ProfessionalMedia>({avatar_path:null,portfolio_paths:[]});
+  const [loading, setLoading] = useState(true);
+  const [userId, setUserId] = useState('');
+  const [userRole, setUserRole] = useState('');
+  const [requestDescription, setRequestDescription] = useState('');
+  const [neighborhood, setNeighborhood] = useState(neighborhoods[0]);
+  const [favorite, setFavorite] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [message, setMessage] = useState('');
+  const [reportReason, setReportReason] = useState('');
+  const [reportMessage, setReportMessage] = useState('');
+
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    void (async () => {
+      const [{ data: rows, error: searchError }, { data: auth }] = await Promise.all([
+        supabase.rpc('search_professionals', { p_query: null, p_latitude: null, p_longitude: null, p_radius_meters: 20000, p_available_only: false, p_neighborhood: null }),
+        supabase.auth.getUser(),
+      ]);
+      if (!active) return;
+      if (searchError) setMessage(searchError.message);
+      else {
+        const found = ((rows ?? []) as LiveSearchRecord[]).find(row => row.profile_id === params.id) ?? null;
+        setProfessional(found);
+        if (found) {
+          const { data: mediaRow, error: mediaError } = await supabase.from('professionals').select('avatar_path, portfolio_paths').eq('profile_id',params.id).maybeSingle();
+          if (!active) return;
+          if (mediaError) setMessage(mediaError.message);
+          else if (mediaRow) setMedia({avatar_path:mediaRow.avatar_path,portfolio_paths:mediaRow.portfolio_paths??[]});
+        }
+      }
+      if (auth.user) {
+        setUserId(auth.user.id);
+        const [{ data: profile }, { data: saved }] = await Promise.all([
+          supabase.from('profiles').select('role, neighborhood').eq('id', auth.user.id).maybeSingle(),
+          supabase.from('favorites').select('professional_id').eq('client_id', auth.user.id).eq('professional_id', params.id).maybeSingle(),
+        ]);
+        if (!active) return;
+        setUserRole(profile?.role ?? '');
+        setNeighborhood(profile?.neighborhood ?? neighborhoods[0]);
+        setFavorite(Boolean(saved));
+      }
+      setLoading(false);
+    })().catch(cause => { if (active) { setMessage(cause instanceof Error ? cause.message : 'Impossible de charger ce profil.'); setLoading(false); } });
+    return () => { active = false; };
+  }, [params.id]);
+
+  const signInFor = (next: string) => setLocation(`/connexion?next=${encodeURIComponent(next)}`);
+  const toggleFavorite = async () => {
+    if (!supabase || !professional) return;
+    if (!userId) { signInFor(`/professionnels/${professional.profile_id}`); return; }
+    if (userRole !== 'client') { setMessage('Les favoris sont disponibles depuis un compte client.'); return; }
+    const response = favorite
+      ? await supabase.from('favorites').delete().eq('client_id', userId).eq('professional_id', professional.profile_id)
+      : await supabase.from('favorites').insert({ client_id: userId, professional_id: professional.profile_id });
+    if (response.error) setMessage(response.error.message);
+    else setFavorite(!favorite);
+  };
+  const sendRequest = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!supabase || !professional) return;
+    if (!userId) { signInFor(`/professionnels/${professional.profile_id}`); return; }
+    if (userRole !== 'client') { setMessage('Pour envoyer une demande, connectez-vous avec un compte client.'); return; }
+    if (requestDescription.trim().length < 10) { setMessage('Décrivez votre besoin en au moins 10 caractères.'); return; }
+    setSending(true); setMessage('');
+    const { error: requestError } = await supabase.from('service_requests').insert({
+      client_id: userId, professional_id: professional.profile_id,
+      description: requestDescription.trim(), neighborhood,
+    });
+    if (requestError) setMessage(requestError.message);
+    else { setRequestDescription(''); setMessage('Demande envoyée. Vous pourrez suivre son état dans votre espace client.'); }
+    setSending(false);
+  };
+  const sendReport = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!supabase || !professional) return;
+    if (!userId) { signInFor(`/professionnels/${professional.profile_id}`); return; }
+    if (reportReason.trim().length < 3) { setReportMessage('Décrivez le motif en au moins 3 caractères.'); return; }
+    const { error: reportError } = await supabase.from('reports').insert({ reporter_id: userId, professional_id: professional.profile_id, reason: reportReason.trim().slice(0, 120) });
+    setReportMessage(reportError ? reportError.message : 'Signalement transmis à l’administration.');
+    if (!reportError) setReportReason('');
+  };
+
+  if (loading) return <div className="mx-auto max-w-3xl px-5 py-16 text-sm text-[#647384]">Chargement du profil…</div>;
+  if (!professional) return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle title="Profil indisponible" text="Ce profil n’est pas public ou n’a pas encore été validé."/>{message&&<p role="alert" className="mb-4 text-sm text-[#9f5145]">{message}</p>}<Link href="/" className="font-bold text-[#294d6a]">Retour à la recherche</Link></div>;
+  return <div className="page-enter mx-auto max-w-[1080px] px-4 py-8 sm:px-7 sm:py-12"><Link href="/" className="mb-6 inline-flex items-center gap-2 text-xs font-bold text-[#617383]"><ArrowLeft size={15}/>Retour aux professionnels</Link><div className="grid gap-6 lg:grid-cols-[1fr_340px]"><section className="rounded-2xl border border-[#e0e6e8] bg-white p-5 sm:p-7"><div className="flex flex-wrap items-start gap-4"><div className="flex h-[68px] w-[68px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#eaf2fb] text-lg font-extrabold text-[#174572]">{media.avatar_path?<img src={professionalMediaUrl(media.avatar_path)} alt={`Photo de ${professional.display_name}`} className="h-full w-full object-cover"/>:professional.display_name.split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h1 className="font-serif text-2xl font-extrabold text-[#183451] sm:text-3xl">{professional.display_name}</h1><span className="rounded-full bg-[#eaf6ed] px-2.5 py-1 text-[10px] font-bold text-[#327044]">Professionnel vérifié</span></div><p className="mt-1 font-semibold text-[#a57934]">{professional.category_name}</p><p className="mt-2 flex items-center gap-1 text-xs text-[#71808c]"><MapPin size={13}/>{professional.neighborhood || 'Goma'} · intervient à {professional.service_area.join(', ') || professional.neighborhood}</p></div><button onClick={()=>void toggleFavorite()} className="flex items-center gap-2 rounded-lg border border-[#e0e6e8] px-3 py-2 text-xs font-bold text-[#536a7c]"><Heart size={15} fill={favorite?'currentColor':'none'}/>{favorite?'Enregistré':'Enregistrer'}</button></div>
+    <div className="mt-6 grid grid-cols-2 gap-3"><Metric label="Expérience" value={`${professional.experience_years} ans`}/><Metric label="Disponibilité" value={professional.available?'Disponible':'Sur demande'}/><Metric label="Tarif indicatif" value={professional.indicative_rate==null?'Sur devis':`${Number(professional.indicative_rate).toLocaleString('fr-FR')} ${professional.rate_currency}`}/><Metric label="Avis clients" value={professional.review_count?`${Number(professional.average_rating).toFixed(1)} · ${professional.review_count}`:'Pas encore d’avis'}/></div>
+    <h2 className="mt-7 font-serif text-lg font-bold text-[#183451]">Présentation</h2><p className="mt-2 whitespace-pre-line text-sm leading-6 text-[#596b79]">{professional.description}</p><h2 className="mt-6 font-serif text-lg font-bold text-[#183451]">Compétences</h2><div className="mt-3 flex flex-wrap gap-2">{professional.skills.map(skill=><span key={skill} className="rounded-full bg-[#edf2f4] px-3 py-1.5 text-xs font-semibold text-[#425c70]">{skill}</span>)}</div>{media.portfolio_paths.length>0&&<><h2 className="mt-7 font-serif text-lg font-bold text-[#183451]">Réalisations</h2><div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">{media.portfolio_paths.map(path=><img key={path} src={professionalMediaUrl(path)} alt={`Réalisation de ${professional.display_name}`} className="aspect-square w-full rounded-xl border border-[#e3e8e9] object-cover"/>)}</div></>}
+    {professional.public_contact_phone&&<a href={`tel:${professional.public_contact_phone}`} className="mt-6 inline-flex items-center gap-2 rounded-lg bg-[#edf4ef] px-4 py-3 text-sm font-bold text-[#327044]"><Phone size={16}/>Appeler {professional.public_contact_phone}</a>}
+    <form onSubmit={sendReport} className="mt-8 border-t border-[#edf0f1] pt-5"><label className="block text-xs font-bold text-[#667887]">Signaler ce profil<textarea value={reportReason} onChange={event=>setReportReason(event.target.value)} maxLength={120} rows={2} placeholder="Décrivez le problème" className="mt-2 w-full rounded-lg border border-[#dfe5e8] px-3 py-2 text-sm font-normal"/></label><button className="mt-2 text-xs font-bold text-[#9f5145]">Envoyer un signalement</button>{reportMessage&&<p role="status" className="mt-2 text-xs text-[#526575]">{reportMessage}</p>}</form>
+    </section><aside className="h-fit rounded-2xl border border-[#e0e6e8] bg-white p-5 lg:sticky lg:top-24"><div className="text-[10px] font-extrabold uppercase tracking-[.15em] text-[#a57934]">Prendre contact</div><h2 className="mt-1 font-serif text-xl font-extrabold text-[#183451]">Décrire votre besoin</h2>{userRole!=='client'&&<p className="mt-2 text-xs leading-5 text-[#71808b]">La consultation est publique. Pour envoyer une demande, connectez-vous avec un compte client.</p>}<form onSubmit={sendRequest} className="mt-4 space-y-3"><label className="block text-xs font-bold text-[#506273]">Votre quartier<select value={neighborhood} onChange={event=>setNeighborhood(event.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] bg-white px-3 py-2.5 text-sm font-normal">{neighborhoods.map(place=><option key={place}>{place}</option>)}</select></label><label className="block text-xs font-bold text-[#506273]">Votre besoin<textarea value={requestDescription} onChange={event=>setRequestDescription(event.target.value)} minLength={10} maxLength={3000} rows={5} required placeholder="Décrivez le travail souhaité…" className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-2.5 text-sm font-normal"/></label>{message&&<p role="status" className="text-xs text-[#526575]">{message}</p>}<button disabled={sending} className="w-full rounded-lg bg-[#183451] py-3 text-sm font-bold text-white disabled:opacity-60">{sending?'Envoi…':'Envoyer la demande'}</button>{!userId&&<button type="button" onClick={()=>signInFor(`/professionnels/${professional.profile_id}`)} className="w-full rounded-lg border border-[#dfe5e8] py-2.5 text-xs font-bold text-[#405268]">Se connecter ou créer un compte client</button>}</form></aside></div></div>;
+}
+
 function Metric({label,value}:{label:string;value:string}) { return <div className="rounded-xl bg-[#f4f6f6] p-3"><div className="text-[9px] font-bold uppercase tracking-wider text-[#7b8992]">{label}</div><div className="mt-1 text-sm font-extrabold text-[#28445d]">{value}</div></div>; }
 
 function AdminAccessUnavailable() {
@@ -441,13 +430,13 @@ function AdminAccessUnavailable() {
   }
 
   if (status === 'authorized') {
-    return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Compte administrateur vérifié" title="Console en préparation" text="Votre accès est vérifié, mais la gestion des données réelles n’est pas encore raccordée."/><button onClick={signOut} className="rounded-lg border border-[#dfe5e8] bg-white px-4 py-2.5 text-sm font-bold text-[#405268]">Se déconnecter</button></div>;
+    return <><div className="mx-auto flex max-w-[1240px] justify-end px-4 pt-6 sm:px-7"><button onClick={signOut} className="rounded-lg border border-[#dfe5e8] bg-white px-3 py-2 text-xs font-bold text-[#405268]">Se déconnecter</button></div><LiveAdminPage /></>;
   }
 
   const configured = status !== 'unconfigured';
   return <div className="page-enter mx-auto max-w-3xl px-5 py-16 sm:px-7">
     <PageTitle eyebrow="Accès protégé" title="Espace administrateur" text="Connectez-vous avec le compte auquel le rôle administrateur a été attribué." />
-    {!configured && <div className="mb-6"><DemoNote>Accès fermé. Configurez les variables Supabase et appliquez la migration avant d’activer la connexion administrateur.</DemoNote></div>}
+    {!configured && <div className="mb-6"><InfoNote>Accès fermé. Configurez les variables Supabase et appliquez la migration avant d’activer la connexion administrateur.</InfoNote></div>}
     {configured && <form onSubmit={signIn} className="mb-6 max-w-md space-y-4 rounded-2xl border border-[#e0e6e8] bg-white p-6 shadow-sm">
       <label className="block text-xs font-bold text-[#506273]">Adresse e-mail<input type="email" autoComplete="username" required value={email} onChange={event => setEmail(event.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal" /></label>
       <label className="block text-xs font-bold text-[#506273]">Mot de passe<input type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal" /></label>
@@ -478,30 +467,153 @@ function authErrorMessage(error: unknown, action: 'signup' | 'signin') {
   return message || 'Une erreur est survenue. Réessayez.';
 }
 
+function isMissingAuthSession(error: unknown) {
+  return typeof error === 'object' && error !== null && 'message' in error
+    && typeof error.message === 'string' && /auth session missing/i.test(error.message);
+}
+
+function accountHome(role: string) {
+  return role === 'professional' ? '/espace/pro' : role === 'admin' ? '/admin' : '/espace/client';
+}
+
+async function ensureAccountProfile(user: { id: string; email?: string; user_metadata?: Record<string, unknown> }) {
+  if (!supabase) throw new Error('La connexion à Supabase n’est pas configurée.');
+  const { data: existing, error: readError } = await supabase.from('profiles').select('display_name, role, neighborhood').eq('id', user.id).maybeSingle();
+  if (readError) throw readError;
+  if (existing) return existing;
+
+  const role = user.user_metadata?.role === 'professional' ? 'professional' : 'client';
+  const metadataName = typeof user.user_metadata?.display_name === 'string' ? user.user_metadata.display_name.trim() : '';
+  const displayName = metadataName || user.email?.split('@')[0] || 'Nouveau membre';
+  const { data: created, error: insertError } = await supabase.from('profiles')
+    .insert({ id: user.id, display_name: displayName.slice(0, 100), role })
+    .select('display_name, role, neighborhood')
+    .single();
+  if (!insertError && created) return created;
+
+  // A signup trigger can create the row at the same time; re-read before reporting failure.
+  const { data: raced, error: retryError } = await supabase.from('profiles').select('display_name, role, neighborhood').eq('id', user.id).maybeSingle();
+  if (!retryError && raced) return raced;
+  throw insertError ?? retryError ?? new Error('Impossible de créer le profil du compte.');
+}
+
+function requestedDestination() {
+  const next = new URLSearchParams(window.location.search).get('next');
+  return next?.startsWith('/') && !next.startsWith('//') ? next : null;
+}
+
+function AuthCallbackPage() {
+  const [, setLocation] = useLocation();
+  const [message, setMessage] = useState('Confirmation de votre adresse…');
+  const [recovery, setRecovery] = useState(false);
+  const [recoveryReady, setRecoveryReady] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!supabase) { setMessage('La connexion Supabase n’est pas configurée.'); return; }
+    let active = true;
+    const isRecovery = new URLSearchParams(window.location.search).get('mode') === 'recovery';
+    setRecovery(isRecovery);
+    void (async () => {
+      const { data, error } = await supabase.auth.getUser();
+      if (error || !data.user) {
+        if (active) setMessage(isRecovery ? 'Ce lien de récupération est invalide ou expiré. Demandez-en un nouveau depuis la page de connexion.' : 'La confirmation n’a pas ouvert de session. Réessayez depuis le lien reçu par courriel ou connectez-vous.');
+        return;
+      }
+      if (isRecovery) { if (active) { setRecoveryReady(true); setMessage('Choisissez un nouveau mot de passe pour votre compte.'); } return; }
+      let profile: { role: string };
+      try { profile = await ensureAccountProfile(data.user); }
+      catch (profileError) { if (active) setMessage(profileError instanceof Error ? profileError.message : 'Impossible de charger votre profil.'); return; }
+      if (active) setLocation(requestedDestination() ?? accountHome(profile.role));
+    })();
+    return () => { active = false; };
+  }, [setLocation]);
+  const updatePassword = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!supabase) return;
+    setBusy(true);
+    const { data, error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) { setMessage(authErrorMessage(error, 'signin')); setBusy(false); return; }
+    if (data.user) {
+      try {
+        const profile = await ensureAccountProfile(data.user);
+        setLocation(accountHome(profile.role));
+        return;
+      } catch (profileError) { setMessage(profileError instanceof Error ? profileError.message : 'Mot de passe modifié. Reconnectez-vous pour ouvrir votre espace.'); }
+    }
+    setBusy(false);
+  };
+  if (recovery && recoveryReady) return <div className="mx-auto max-w-[520px] px-5 py-12"><PageTitle eyebrow="Récupération du compte" title="Choisir un nouveau mot de passe" text={message}/><form onSubmit={updatePassword} className="space-y-4 rounded-2xl border border-[#e0e6e8] bg-white p-6 shadow-sm"><label className="block text-xs font-bold text-[#506273]">Nouveau mot de passe<input type="password" autoComplete="new-password" minLength={6} required value={newPassword} onChange={event=>setNewPassword(event.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal"/></label><button disabled={busy} className="w-full rounded-lg bg-[#183451] py-3 text-sm font-bold text-white disabled:opacity-60">{busy?'Enregistrement…':'Enregistrer le mot de passe'}</button></form><Link href="/connexion" className="mt-4 inline-flex text-sm font-bold text-[#0d5ebd]">Retour à la connexion</Link></div>;
+  if (recovery) return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Récupération du compte" title="Lien à renouveler" text={message}/><Link href="/connexion" className="inline-flex rounded-lg bg-[#183451] px-4 py-3 text-sm font-bold text-white">Demander un nouveau lien</Link></div>;
+  return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Compte sécurisé" title="Ouverture de votre espace" text={message}/><Link href="/connexion" className="text-sm font-bold text-[#0d5ebd]">Aller à la connexion</Link></div>;
+}
+
 function AuthPage() {
   const [location, setLocation] = useLocation();
-  const signup=location==='/inscription';
+  const signup=location.split('?')[0]==='/inscription';
   const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [name,setName]=useState('');
   const [role,setRole]=useState<'client'|'professional'>('client'); const [message,setMessage]=useState('');
+  const [canResendConfirmation,setCanResendConfirmation]=useState(false);
   const [busy,setBusy]=useState(false);
+  useEffect(() => {
+    if (!supabase) return;
+    let active = true;
+    void supabase.auth.getUser().then(async ({ data, error }) => {
+      if (!active || error || !data.user) return;
+      try {
+        const profile = await ensureAccountProfile(data.user);
+        if (active) setLocation(requestedDestination() ?? accountHome(profile.role));
+      } catch { /* The form reports setup and permission errors when the user submits. */ }
+    });
+    return () => { active = false; };
+  }, [setLocation]);
   const submit=async(e:FormEvent)=>{
-    e.preventDefault(); setMessage('');
+    e.preventDefault(); setMessage(''); setCanResendConfirmation(false);
     if(!supabase){setMessage('Supabase n’est pas configuré. Ajoutez VITE_SUPABASE_URL et VITE_SUPABASE_PUBLISHABLE_KEY dans .env.local.');return;}
     setBusy(true);
     try {
       if(signup){
-        const {data,error}=await supabase.auth.signUp({email,password,options:{data:{display_name:name.trim(),role}}});
+        const next = requestedDestination();
+        const emailRedirectTo = `${window.location.origin}/auth/callback${next?`?next=${encodeURIComponent(next)}`:''}`;
+        const {data,error}=await supabase.auth.signUp({email,password,options:{emailRedirectTo,data:{display_name:name.trim(),role}}});
         if(error) throw error;
-        setMessage(data.session?'Compte créé. Vous pouvez maintenant vous connecter.':'Compte créé. Vérifiez votre e-mail pour confirmer votre inscription.');
+        if (!data.session && data.user?.identities?.length === 0) {
+          setCanResendConfirmation(true);
+          setMessage('Un compte existe déjà avec cette adresse e-mail. Connectez-vous avec votre mot de passe, ou demandez la récupération du mot de passe depuis la page de connexion.');
+          return;
+        }
+        if (data.session) {
+          const profile = await ensureAccountProfile(data.user!);
+          setLocation(next ?? accountHome(profile.role));
+        } else {
+          setCanResendConfirmation(true);
+          setMessage('Compte créé. Confirmez votre adresse dans le courriel reçu ; vous serez ensuite dirigé automatiquement vers votre espace.');
+        }
       } else {
         const {data,error}=await supabase.auth.signInWithPassword({email,password});
         if(error) throw error;
-        const {data:profile,error:profileError}=await supabase.from('profiles').select('role').eq('id',data.user.id).single();
-        if(profileError) throw profileError;
-        setLocation(profile.role==='professional'?'/espace/pro':'/espace/client');
+        const profile=await ensureAccountProfile(data.user);
+        setLocation(requestedDestination() ?? accountHome(profile.role));
       }
     } catch(error) { setMessage(authErrorMessage(error, signup ? 'signup' : 'signin')); }
     finally {setBusy(false);}
+  };
+  const sendRecovery = async () => {
+    if (!supabase) return;
+    if (!email.trim()) { setMessage('Saisissez votre adresse e-mail pour recevoir le lien de récupération.'); return; }
+    setBusy(true); setMessage('');
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: `${window.location.origin}/auth/callback?mode=recovery` });
+    setMessage(error ? authErrorMessage(error, 'signin') : 'Si un compte existe pour cette adresse, un lien de récupération vient de lui être envoyé. Vérifiez aussi vos courriers indésirables.');
+    setBusy(false);
+  };
+  const resendConfirmation = async () => {
+    if (!supabase || !email.trim()) return;
+    setBusy(true); setMessage('');
+    const next = requestedDestination();
+    const emailRedirectTo = `${window.location.origin}/auth/callback${next?`?next=${encodeURIComponent(next)}`:''}`;
+    const { error } = await supabase.auth.resend({ type: 'signup', email: email.trim(), options: { emailRedirectTo } });
+    setMessage(error ? authErrorMessage(error, 'signup') : 'Si cette adresse attend une confirmation, un nouveau lien vient de lui être envoyé. Vérifiez aussi vos courriers indésirables.');
+    setBusy(false);
   };
   return <div className="mx-auto flex min-h-[calc(100dvh-48px)] max-w-[520px] items-center justify-center px-5 py-10 sm:px-7 xl:min-h-[calc(100dvh-60px)]">
     <form onSubmit={submit} className="w-full rounded-2xl border border-[#e0e6e8] bg-white p-6 shadow-[0_16px_40px_rgba(24,52,81,0.08)] sm:p-8"><div className="mb-5"><div className="text-[10px] font-extrabold uppercase tracking-[.15em] text-[#a57934]">{signup?'Créer un compte':'Connexion'}</div><h1 className="mt-1 font-serif text-2xl font-extrabold text-[#183451]">{signup?'Rejoindre KaziGoma':'Accéder à mon compte'}</h1></div>
@@ -509,15 +621,17 @@ function AuthPage() {
       <label className="mb-4 block text-xs font-bold text-[#506273]">Adresse e-mail<input type="email" autoComplete="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="vous@exemple.cd" className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal" required/></label>
       <label className="mb-4 block text-xs font-bold text-[#506273]">Mot de passe<input type="password" autoComplete={signup?'new-password':'current-password'} minLength={6} value={password} onChange={e=>setPassword(e.target.value)} placeholder="6 caractères minimum" className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal" required/></label>
       {message&&<p role="status" className="mb-3 rounded-lg bg-[#f3f6f7] p-3 text-xs leading-5 text-[#526575]">{message}</p>}
+      {canResendConfirmation&&<button type="button" disabled={busy} onClick={()=>void resendConfirmation()} className="mb-2 w-full rounded-lg border border-[#dfe5e8] bg-white py-2.5 text-xs font-bold text-[#405268] disabled:opacity-60">Renvoyer le courriel de confirmation</button>}
       <button disabled={busy} className="mt-2 w-full rounded-lg bg-[#183451] py-3 text-sm font-bold text-white disabled:opacity-60" data-testid="button-auth">{busy?'Patientez…':signup?'Créer mon compte':'Se connecter'}</button>
-      <div className="mt-5 border-t border-[#edf0f1] pt-4 text-center text-xs text-[#74828c]">{signup?'Déjà un compte ?':'Vous cherchez un professionnel ?'} <Link href={signup?'/connexion':'/'} className="font-bold text-[#284b68]">{signup?'Connexion':'Explorer les profils'}</Link></div>
+      {!signup&&<button type="button" disabled={busy} onClick={()=>void sendRecovery()} className="mt-3 w-full text-xs font-bold text-[#0d5ebd] disabled:opacity-60">Mot de passe oublié ? Recevoir un lien de récupération</button>}
+      <div className="mt-5 border-t border-[#edf0f1] pt-4 text-center text-xs text-[#74828c]">{signup?'Déjà un compte ?':'Vous n’avez pas encore de compte ?'} <Link href={`${signup?'/connexion':'/inscription'}${requestedDestination()?`?next=${encodeURIComponent(requestedDestination()!)}`:''}`} className="font-bold text-[#284b68]">{signup?'Se connecter':'Créer mon compte'}</Link></div>
     </form>
   </div>;
 }
 
 function ClientSpace() {
   if (supabase) return <LiveClientSpace />;
-  return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Configuration requise" title="Espace client indisponible" text="La connexion à Supabase n’est pas configurée pour ce site."/><DemoNote>Connectez les variables Supabase dans Vercel et redéployez pour ouvrir votre compte réel.</DemoNote></div>;
+  return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Configuration requise" title="Espace client indisponible" text="La connexion à Supabase n’est pas configurée pour ce site."/><InfoNote>Connectez les variables Supabase dans Vercel et redéployez pour ouvrir votre compte réel.</InfoNote></div>;
 }
 
 function LiveClientSpace() {
@@ -525,6 +639,10 @@ function LiveClientSpace() {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState('');
+  const [tab, setTab] = useState<'requests' | 'favorites'>('requests');
+  const [requests, setRequests] = useState<{ id: string; professional_id: string; description: string; neighborhood: string | null; status: string; created_at: string }[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
+  const [professionals, setProfessionals] = useState<LiveSearchRecord[]>([]);
   const [error, setError] = useState('');
   useEffect(() => {
     if (!supabase) return;
@@ -532,14 +650,24 @@ function LiveClientSpace() {
     void (async () => {
       try {
         const { data: auth, error: authError } = await supabase.auth.getUser();
-        if (authError) throw authError;
+        if (authError && !isMissingAuthSession(authError)) throw authError;
         if (!auth.user) return;
-        const { data: profile, error: profileError } = await supabase.from('profiles').select('display_name, role').eq('id', auth.user.id).single();
-        if (profileError) throw profileError;
+        const [profile, { data: requestRows, error: requestError }, { data: favoriteRows, error: favoriteError }, { data: professionalRows, error: professionalError }] = await Promise.all([
+          ensureAccountProfile(auth.user),
+          supabase.from('service_requests').select('id, professional_id, description, neighborhood, status, created_at').eq('client_id', auth.user.id).order('created_at', { ascending: false }),
+          supabase.from('favorites').select('professional_id').eq('client_id', auth.user.id),
+          supabase.rpc('search_professionals', { p_query: null, p_latitude: null, p_longitude: null, p_radius_meters: 20000, p_available_only: false, p_neighborhood: null }),
+        ]);
+        if (requestError) throw requestError;
+        if (favoriteError) throw favoriteError;
+        if (professionalError) throw professionalError;
         if (!active) return;
         setEmail(auth.user.email ?? '');
         setName(profile.display_name);
         setRole(profile.role);
+        setRequests(requestRows ?? []);
+        setFavoriteIds((favoriteRows ?? []).map(row=>row.professional_id));
+        setProfessionals((professionalRows ?? []) as LiveSearchRecord[]);
       } catch (cause) {
         if (active) setError(authErrorMessage(cause, 'signin'));
       } finally {
@@ -549,22 +677,41 @@ function LiveClientSpace() {
     return () => { active = false; };
   }, []);
   if (loading) return <div className="mx-auto max-w-3xl px-5 py-16 text-sm text-[#647384]">Vérification de votre compte…</div>;
-  if (!email) return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Connexion requise" title="Connectez-vous à votre compte" text="Vous n’êtes pas connecté. Connectez-vous pour vérifier votre compte client ou professionnel."/><Link href="/connexion" className="inline-flex rounded-lg bg-[#183451] px-4 py-3 text-sm font-bold text-white">Se connecter</Link>{error&&<p role="alert" className="mt-3 text-sm text-[#a34436]">{error}</p>}</div>;
-  const roleLabel = role === 'professional' ? 'Professionnel' : role === 'admin' ? 'Administrateur' : 'Client';
-  return <div className="page-enter mx-auto max-w-[900px] px-4 py-10 sm:px-7"><PageTitle eyebrow="Compte Supabase · vérifié" title={`Bonjour, ${name}`} text="Vous êtes connecté à votre compte réel. Cette page confirme l’identité du compte actif sur cet appareil."/>
-    <section className="rounded-2xl border border-[#cfe4d4] bg-white p-5 shadow-[0_8px_24px_rgba(16,56,94,.06)] sm:p-7"><div className="flex flex-wrap items-start gap-4"><span className="flex h-12 w-12 items-center justify-center rounded-full bg-[#eaf6ed] text-[#327044]"><Check size={22}/></span><div className="min-w-0 flex-1"><span className="inline-flex rounded-full bg-[#eaf6ed] px-3 py-1 text-xs font-extrabold text-[#327044]">Compte {roleLabel} réel</span><h2 className="mt-3 break-all text-lg font-bold text-[#183451]">{email}</h2><p className="mt-1 text-xs text-[#71808b]">Adresse utilisée pour ce compte</p></div></div>
-      <div className="mt-5 rounded-xl bg-[#f5f8fa] p-4 text-sm leading-6 text-[#526575]">La connexion et votre identité sont gérées par Supabase. Le suivi des demandes et les favoris ne sont pas encore raccordés à la base ; aucune donnée de démonstration n’est affichée dans cet espace.</div>
-      {role === 'professional' && <Link href="/espace/pro" className="mt-4 inline-flex rounded-lg bg-[#0d5ebd] px-4 py-3 text-sm font-bold text-white">Ouvrir ma fiche professionnelle</Link>}
-      {error&&<p role="alert" className="mt-3 text-sm text-[#a34436]">{error}</p>}
-    </section>
+  if (!email) return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Espace client" title="Connectez-vous pour continuer" text="La consultation des professionnels reste publique. Connectez-vous ou créez un compte client pour suivre vos demandes et favoris."/><div className="flex flex-wrap gap-3"><Link href="/connexion?next=%2Fespace%2Fclient" className="inline-flex rounded-lg bg-[#183451] px-4 py-3 text-sm font-bold text-white">Se connecter</Link><Link href="/inscription?next=%2Fespace%2Fclient" className="inline-flex rounded-lg border border-[#dfe5e8] bg-white px-4 py-3 text-sm font-bold text-[#405268]">Créer un compte client</Link></div>{error&&<p role="alert" className="mt-3 text-sm text-[#a34436]">{error}</p>}</div>;
+  if (role !== 'client') return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Compte Supabase · vérifié" title={`Bonjour, ${name}`} text={`Ce compte est enregistré comme ${role === 'professional' ? 'professionnel' : 'administrateur'}, pas comme client.`}/><Link href={accountHome(role)} className="inline-flex rounded-lg bg-[#183451] px-4 py-3 text-sm font-bold text-white">Ouvrir mon espace</Link></div>;
+  const roleLabel = 'Client';
+  const professionalById = new Map(professionals.map(pro=>[pro.profile_id,pro]));
+  const clientRequests = requests.filter(request=>request.status!=='cancelled');
+  const savedProfessionals = favoriteIds.map(id=>professionalById.get(id)).filter((pro):pro is LiveSearchRecord=>Boolean(pro));
+  const cancelRequest = async (id: string) => {
+    if (!supabase) return;
+    const { error: cancelError } = await supabase.from('service_requests').update({status:'cancelled'}).eq('id',id);
+    if (cancelError) setError(cancelError.message);
+    else setRequests(current=>current.map(request=>request.id===id?{...request,status:'cancelled'}:request));
+  };
+  const removeFavorite = async (id: string) => {
+    if (!supabase) return;
+    const { error: removeError } = await supabase.from('favorites').delete().eq('professional_id',id);
+    if (removeError) setError(removeError.message);
+    else setFavoriteIds(current=>current.filter(value=>value!==id));
+  };
+  return <div className="page-enter mx-auto max-w-[1060px] px-4 py-10 sm:px-7"><PageTitle eyebrow="Espace client · compte réel" title={`Bonjour, ${name}`} text="Retrouvez vos demandes envoyées et les professionnels enregistrés."/>
+    <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-[#cfe4d4] bg-[#f5fbf6] px-4 py-3 text-xs"><span className="rounded-full bg-[#e4f3e7] px-2.5 py-1 font-extrabold text-[#327044]">Compte {roleLabel} réel</span><span className="font-semibold text-[#29445c]">{email}</span></div>
+    <div role="tablist" aria-label="Espace client" className="mb-5 flex gap-2 border-b border-[#dfe5e8]"><button role="tab" aria-selected={tab==='requests'} onClick={()=>setTab('requests')} className={`border-b-2 px-3 py-3 text-sm font-bold ${tab==='requests'?'border-[#183451] text-[#183451]':'border-transparent text-[#76838d]'}`}>Mes demandes ({clientRequests.length})</button><button role="tab" aria-selected={tab==='favorites'} onClick={()=>setTab('favorites')} className={`border-b-2 px-3 py-3 text-sm font-bold ${tab==='favorites'?'border-[#183451] text-[#183451]':'border-transparent text-[#76838d]'}`}>Mes favoris ({favoriteIds.length})</button></div>
+    {error&&<p role="alert" className="mb-4 rounded-lg bg-[#fff8f6] p-3 text-sm text-[#9f5145]">{error}</p>}
+    {tab==='requests'?clientRequests.length?<div className="space-y-3">{clientRequests.map(request=>{const pro=professionalById.get(request.professional_id);return <article key={request.id} className="rounded-xl border border-[#e0e6e8] bg-white p-4 sm:flex sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><h3 className="font-bold text-[#24425c]">{pro?.display_name??'Professionnel'}</h3><StatusPill status={request.status==='pending'?'En attente':request.status==='accepted'?'Acceptée':request.status==='in_progress'?'En cours':request.status==='completed'?'Terminée':request.status==='declined'?'Refusée':'Annulée'}/></div><p className="mt-1 text-xs text-[#778590]">{pro?.category_name??''} · {request.neighborhood??'Quartier non précisé'} · {new Date(request.created_at).toLocaleDateString('fr-FR')}</p><p className="mt-2 text-sm text-[#5f707d]">{request.description}</p></div>{['pending','accepted'].includes(request.status)&&<button onClick={()=>void cancelRequest(request.id)} className="mt-3 text-xs font-bold text-[#9b5144] sm:mt-0">Annuler la demande</button>}</article>})}</div>:<EmptyState title="Aucune demande envoyée" text="Parcourez les professionnels vérifiés et envoyez une demande depuis leur fiche." href="/" action="Trouver un professionnel"/>:
+    savedProfessionals.length?<div className="grid gap-3 sm:grid-cols-2">{savedProfessionals.map(pro=><article key={pro.profile_id} className="flex items-center gap-3 rounded-xl border border-[#e0e6e8] bg-white p-4"><div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#eaf2fb] text-sm font-extrabold text-[#174572]">{pro.display_name.split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</div><div className="min-w-0 flex-1"><h3 className="truncate font-bold text-[#24425c]">{pro.display_name}</h3><p className="text-xs text-[#778590]">{pro.category_name} · {pro.neighborhood}</p></div><Link href={`/professionnels/${pro.profile_id}`} className="text-xs font-bold text-[#365873]">Profil</Link><button onClick={()=>void removeFavorite(pro.profile_id)} aria-label="Retirer des favoris" className="p-2 text-[#a45f4d]"><X size={16}/></button></article>)}</div>:<EmptyState title="Aucun professionnel enregistré" text="Enregistrez les profils qui vous intéressent pour les retrouver ici." href="/" action="Explorer les professionnels"/>}
   </div>;
 }
 
+function EmptyState({title,text,href,action}:{title:string;text:string;href:string;action:string}) { return <div className="rounded-xl border border-dashed border-[#d4dde0] px-5 py-10 text-center"><p className="text-sm font-bold text-[#476075]">{title}</p><p className="mx-auto mt-1 max-w-md text-xs leading-5 text-[#87939b]">{text}</p><Link href={href} className="mt-4 inline-flex rounded-lg bg-[#183451] px-4 py-2.5 text-xs font-bold text-white">{action}</Link></div>; }
+
 function StatusPill({status}:{status:string}) { const style=status==='Terminée'?'bg-[#edf4ef] text-[#42674d]':status==='Refusée'?'bg-[#f9eeec] text-[#9f5145]':status==='En cours'?'bg-[#eef2f6] text-[#4a6279]':'bg-[#fff4df] text-[#8c672a]';return <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${style}`}>{status}</span>; }
+function professionalRequestTransitions(status: string) { return status==='pending'?[['accepted','Accepter'],['declined','Refuser']]:status==='accepted'?[['in_progress','Démarrer']]:status==='in_progress'?[['completed','Terminer']]:[] as string[][]; }
 
 function ProSpace() {
   if (supabase) return <LiveProSpace />;
-  return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Configuration requise" title="Espace professionnel indisponible" text="La connexion à la base de données n’est pas configurée pour ce site. Ajoutez les variables Supabase dans Vercel et redéployez."/><DemoNote>La fiche professionnelle ne peut pas être enregistrée tant que Supabase n’est pas configuré.</DemoNote></div>;
+  return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Configuration requise" title="Espace professionnel indisponible" text="La connexion à la base de données n’est pas configurée pour ce site. Ajoutez les variables Supabase dans Vercel et redéployez."/><InfoNote>La fiche professionnelle ne peut pas être enregistrée tant que Supabase n’est pas configuré.</InfoNote></div>;
 }
 
 type ProfessionalFormState = {
@@ -591,6 +738,13 @@ function LiveProSpace() {
   const [userEmail, setUserEmail] = useState('');
   const [role, setRole] = useState('');
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
+  const [skillOptions, setSkillOptions] = useState<{ id: string; name: string }[]>([]);
+  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
+  const [avatarPath, setAvatarPath] = useState<string | null>(null);
+  const [portfolioPaths, setPortfolioPaths] = useState<string[]>([]);
+  const [pendingMediaRemoval, setPendingMediaRemoval] = useState<string[]>([]);
+  const [mediaMessage, setMediaMessage] = useState('');
+  const [requests, setRequests] = useState<{ id: string; client_id: string; description: string; neighborhood: string | null; status: string; created_at: string; client: { display_name: string }[] }[]>([]);
   const [form, setForm] = useState<ProfessionalFormState>(emptyProfessionalForm);
   const [status, setStatus] = useState<string | null>(null);
   const [message, setMessage] = useState('');
@@ -601,27 +755,34 @@ function LiveProSpace() {
     void (async () => {
       try {
         const { data: auth, error: authError } = await supabase.auth.getUser();
-        if (authError) throw authError;
+        if (authError && !isMissingAuthSession(authError)) throw authError;
         if (!auth.user) { if (active) setLoading(false); return; }
-        const [{ data: profile, error: profileError }, { data: categoryRows, error: categoryError }] = await Promise.all([
-          supabase.from('profiles').select('display_name, neighborhood, role').eq('id', auth.user.id).single(),
+        const [profile, { data: categoryRows, error: categoryError }, { data: requestRows, error: requestError }] = await Promise.all([
+          ensureAccountProfile(auth.user),
           supabase.from('categories').select('id, name').order('name'),
+          supabase.from('service_requests').select('id, client_id, description, neighborhood, status, created_at, client:profiles!service_requests_client_id_fkey(display_name)').eq('professional_id', auth.user.id).order('created_at', { ascending: false }),
         ]);
-        if (profileError) throw profileError;
         if (categoryError) throw categoryError;
+        if (requestError) throw requestError;
         const { data: professional, error: professionalError } = await supabase
           .from('professionals')
-          .select('category_id, description, experience_years, indicative_rate, available, service_area, public_contact_phone, status')
+          .select('category_id, description, experience_years, indicative_rate, available, service_area, public_contact_phone, status, avatar_path, portfolio_paths')
           .eq('profile_id', auth.user.id)
           .maybeSingle();
         if (professionalError) throw professionalError;
+        const { data: skillRows, error: skillError } = await supabase.from('professional_skills').select('skill_id').eq('professional_id', auth.user.id);
+        if (skillError) throw skillError;
         if (!active) return;
         setUserId(auth.user.id);
         setUserEmail(auth.user.email ?? '');
         setRole(profile.role);
         setCategories(categoryRows ?? []);
+        setRequests((requestRows ?? []) as unknown as typeof requests);
+        setSelectedSkillIds((skillRows ?? []).map(row=>row.skill_id));
         if (professional) {
           setStatus(professional.status);
+          setAvatarPath(professional.avatar_path);
+          setPortfolioPaths(professional.portfolio_paths ?? []);
           setForm({
             displayName: profile.display_name ?? '', neighborhood: profile.neighborhood ?? neighborhoods[0],
             categoryId: professional.category_id, description: professional.description ?? '',
@@ -641,6 +802,20 @@ function LiveProSpace() {
     })();
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (!supabase || !form.categoryId) { setSkillOptions([]); return; }
+    let active = true;
+    void supabase.from('skills').select('id, name').eq('category_id', form.categoryId).order('name').then(({data,error})=>{
+      if (!active) return;
+      if (error) { setMessage(error.message); return; }
+      const options = data ?? [];
+      setSkillOptions(options);
+      const optionIds = new Set(options.map(skill=>skill.id));
+      setSelectedSkillIds(current=>current.filter(id=>optionIds.has(id)));
+    });
+    return ()=>{ active=false; };
+  }, [form.categoryId]);
 
   const updateForm = <K extends keyof ProfessionalFormState>(key: K, value: ProfessionalFormState[K]) => {
     setForm(current => ({ ...current, [key]: value }));
@@ -667,13 +842,32 @@ function LiveProSpace() {
         profile_id: userId, category_id: form.categoryId, description: form.description.trim(),
         experience_years: years, indicative_rate: rate, rate_currency: 'CDF', available: form.available,
         service_area: serviceArea, public_contact_phone: form.phone.trim() || null,
+        avatar_path: avatarPath, portfolio_paths: portfolioPaths,
       };
       const write = status
         ? await supabase.from('professionals').update(professionalValues).eq('profile_id', userId)
         : await supabase.from('professionals').insert(professionalValues);
       if (write.error) throw write.error;
-      setStatus(status ?? 'pending');
-      setMessage('Votre fiche professionnelle est enregistrée. Elle sera visible après validation par l’administration.');
+      const { error: clearSkillsError } = await supabase.from('professional_skills').delete().eq('professional_id', userId);
+      if (clearSkillsError) throw clearSkillsError;
+      if (selectedSkillIds.length) {
+        const { error: skillsError } = await supabase.from('professional_skills').insert(selectedSkillIds.map(skill_id=>({professional_id:userId,skill_id})));
+        if (skillsError) throw skillsError;
+      }
+      if (pendingMediaRemoval.length) {
+        const { error: removalError } = await supabase.storage.from('professional-media').remove(pendingMediaRemoval);
+        if (removalError) setMediaMessage(`La fiche est enregistrée, mais certaines anciennes photos n’ont pas été supprimées : ${removalError.message}`);
+        else setPendingMediaRemoval([]);
+      }
+      const nextStatus = status === 'rejected' ? 'pending' : status ?? 'pending';
+      setStatus(nextStatus);
+      setMessage(status === 'verified'
+        ? 'Votre fiche et vos photos ont été mises à jour dans votre profil public.'
+        : status === 'suspended'
+          ? 'Vos modifications sont enregistrées. Votre fiche reste suspendue jusqu’à sa réactivation par l’administration.'
+          : status === 'rejected'
+            ? 'Votre fiche corrigée a été renvoyée à l’administration pour examen.'
+            : 'Votre fiche professionnelle est enregistrée. Elle sera visible après validation par l’administration.');
     } catch (error) {
       setMessage(authErrorMessage(error, 'signup'));
     } finally {
@@ -681,129 +875,251 @@ function LiveProSpace() {
     }
   };
 
+  const uploadProfessionalMedia = async (files: FileList | File | null, kind: 'avatar' | 'portfolio') => {
+    if (!supabase || !userId || !files) return;
+    const selected = files instanceof File ? [files] : Array.from(files);
+    const remaining = kind==='portfolio' ? 6-portfolioPaths.length : 1;
+    if (!selected.length) return;
+    if (kind==='portfolio' && selected.length>remaining) { setMediaMessage('Vous pouvez afficher jusqu’à 6 réalisations.'); return; }
+    if (selected.some(file=>!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>2_097_152)) { setMediaMessage('Choisissez des images PNG, JPEG ou WebP de 2 Mo maximum chacune.'); return; }
+    setMediaMessage('Téléversement des images…');
+    try {
+      const uploaded: string[] = [];
+      for (const file of selected) {
+        const extension = file.type==='image/jpeg'?'jpg':file.type==='image/png'?'png':'webp';
+        const path = `${userId}/${kind}-${crypto.randomUUID()}.${extension}`;
+        const { error } = await supabase.storage.from('professional-media').upload(path,file,{contentType:file.type,upsert:false});
+        if (error) throw error;
+        uploaded.push(path);
+      }
+      if (kind==='avatar') {
+        if (avatarPath) setPendingMediaRemoval(current=>[...new Set([...current,avatarPath])]);
+        setAvatarPath(uploaded[0] ?? null);
+      } else setPortfolioPaths(current=>[...current,...uploaded]);
+      setMediaMessage('Image téléversée. Cliquez sur « Enregistrer ma fiche » pour publier la mise à jour.');
+    } catch (error) { setMediaMessage(authErrorMessage(error,'signup')); }
+  };
+
+  const deleteProfessionalMedia = async (path: string, kind: 'avatar' | 'portfolio') => {
+    setPendingMediaRemoval(current=>[...new Set([...current,path])]);
+    if (kind==='avatar') setAvatarPath(null); else setPortfolioPaths(current=>current.filter(item=>item!==path));
+    setMediaMessage('Image marquée pour suppression. Enregistrez votre fiche pour confirmer la modification.');
+  };
+
+  const updateRequestStatus = async (id: string, nextStatus: string) => {
+    if (!supabase) return;
+    setMessage('');
+    const { error } = await supabase.from('service_requests').update({ status: nextStatus }).eq('id', id);
+    if (error) { setMessage(authErrorMessage(error, 'signup')); return; }
+    setRequests(current => current.map(request => request.id === id ? { ...request, status: nextStatus } : request));
+  };
+
   if (loading) return <div className="mx-auto max-w-3xl px-5 py-16 text-sm text-[#647384]">Chargement de votre espace…</div>;
-  if (!userId) return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Connexion requise" title="Créez votre compte professionnel" text="Connectez-vous avec votre compte professionnel, puis complétez votre fiche pour l’enregistrer dans la base de données."/><Link href="/connexion" className="inline-flex rounded-lg bg-[#183451] px-4 py-3 text-sm font-bold text-white">Se connecter</Link></div>;
+  if (!userId) return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Espace professionnel" title="Ouvrez votre espace professionnel" text="Créez un compte professionnel ou connectez-vous. Vous pourrez ensuite enregistrer votre fiche et suivre sa validation ici."/><div className="flex flex-wrap gap-3"><Link href="/inscription?next=%2Fespace%2Fpro" className="inline-flex rounded-lg bg-[#183451] px-4 py-3 text-sm font-bold text-white">Créer mon compte professionnel</Link><Link href="/connexion?next=%2Fespace%2Fpro" className="inline-flex rounded-lg border border-[#dfe5e8] bg-white px-4 py-3 text-sm font-bold text-[#405268]">J’ai déjà un compte</Link></div>{message&&<p role="alert" className="mt-3 text-sm text-[#a34436]">{message}</p>}</div>;
   if (role !== 'professional') return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Espace réservé" title="Ce compte n’est pas professionnel" text="Déconnectez-vous et créez un compte en choisissant « Un professionnel » à l’inscription."/><button onClick={() => void supabase?.auth.signOut()} className="rounded-lg border border-[#dfe5e8] bg-white px-4 py-2.5 text-sm font-bold text-[#405268]">Se déconnecter</button></div>;
 
   return <div className="page-enter mx-auto max-w-[900px] px-4 py-10 sm:px-7">
-    <PageTitle eyebrow="Espace professionnel · compte réel" title={status ? 'Ma fiche professionnelle' : 'Créer ma fiche professionnelle'} text="Ces informations seront enregistrées dans Supabase. Votre fiche restera en attente avant validation." />
+    <PageTitle eyebrow="Espace professionnel · compte réel" title={status ? 'Ma fiche professionnelle' : 'Créer ma fiche professionnelle'} text={status==='verified'?'Gérez les informations de votre profil et vos demandes clients.':"Ces informations seront enregistrées dans Supabase. Votre fiche restera en attente avant validation."} />
     <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-[#cfe4d4] bg-[#f5fbf6] px-4 py-3 text-xs"><span className="rounded-full bg-[#e4f3e7] px-2.5 py-1 font-extrabold text-[#327044]">Compte professionnel réel</span><span className="font-semibold text-[#29445c]">{form.displayName}</span><span className="text-[#667887]">{userEmail}</span></div>
     <div className="mb-5"><div className="flex items-start gap-3 rounded-xl border border-[#d7e5f7] bg-[#f3f8ff] p-4 text-sm leading-6 text-[#34516d]"><Info size={17} className="mt-0.5 shrink-0 text-[#0d5ebd]"/><p>Les fiches sont publiées après vérification par l’administration. Seuls le nom, le quartier, le métier et les informations professionnelles renseignées seront affichés publiquement.</p></div></div>
     {status && <div className="mb-5 rounded-xl border border-[#ead9b7] bg-[#fff9ee] px-4 py-3 text-sm text-[#735b35]">État de la fiche : <strong>{status === 'verified' ? 'Vérifiée' : status === 'rejected' ? 'À corriger' : status === 'suspended' ? 'Suspendue' : 'En attente de validation'}</strong></div>}
-    {categories.length === 0 && <div className="mb-5"><DemoNote>Aucune catégorie n’est disponible. L’administrateur doit exécuter le script `05_seed_data.sql` dans Supabase.</DemoNote></div>}
+    {categories.length === 0 && <div className="mb-5"><InfoNote>Aucune catégorie n’est disponible. L’administrateur doit exécuter le script `05_seed_data.sql` dans Supabase.</InfoNote></div>}
+    <section className="mb-5 rounded-2xl border border-[#e0e6e8] bg-white p-5 shadow-[0_8px_24px_rgba(16,56,94,.06)] sm:p-6"><h2 className="font-serif text-lg font-bold text-[#183451]">Photos professionnelles</h2><p className="mt-1 text-xs leading-5 text-[#778590]">Ces images seront stockées dans Supabase et visibles sur votre fiche après validation. PNG, JPEG ou WebP, 2 Mo maximum par image.</p><div className="mt-4 grid gap-5 sm:grid-cols-[160px_1fr]"><div><div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-full border border-[#dfe5e8] bg-[#edf4fc] text-2xl font-extrabold text-[#174572]">{avatarPath?<img src={professionalMediaUrl(avatarPath)} alt="Photo de profil professionnel" className="h-full w-full object-cover"/>:form.displayName.split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</div><label className="mt-3 block text-[10px] font-bold text-[#506273]">Photo de profil<input type="file" accept="image/jpeg,image/png,image/webp" onChange={event=>{void uploadProfessionalMedia(event.currentTarget.files?.[0]??null,'avatar');event.currentTarget.value=''}} className="mt-1.5 block w-full text-[10px] font-normal"/></label>{avatarPath&&<button type="button" onClick={()=>deleteProfessionalMedia(avatarPath,'avatar')} className="mt-2 text-[10px] font-bold text-[#9f5145]">Supprimer la photo</button>}</div><div><div className="flex items-center justify-between gap-3"><div><p className="text-xs font-bold text-[#506273]">Réalisations ({portfolioPaths.length}/6)</p><p className="mt-1 text-[10px] text-[#81909b]">Ajoutez des exemples de travaux effectués.</p></div><label className="cursor-pointer rounded-lg border border-[#dfe5e8] bg-white px-3 py-2 text-[10px] font-bold text-[#405268]">Ajouter des photos<input type="file" multiple accept="image/jpeg,image/png,image/webp" disabled={portfolioPaths.length>=6} onChange={event=>{void uploadProfessionalMedia(event.currentTarget.files,'portfolio');event.currentTarget.value=''}} className="sr-only"/></label></div><div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">{portfolioPaths.map(path=><div key={path} className="relative aspect-square overflow-hidden rounded-lg border border-[#dfe5e8]"><img src={professionalMediaUrl(path)} alt="Réalisation professionnelle" className="h-full w-full object-cover"/><button type="button" onClick={()=>deleteProfessionalMedia(path,'portfolio')} aria-label="Supprimer cette réalisation" className="absolute right-1 top-1 flex h-7 w-7 items-center justify-center rounded-full bg-white/95 text-[#9f5145] shadow"><X size={14}/></button></div>)}{portfolioPaths.length===0&&<div className="col-span-full rounded-lg border border-dashed border-[#d4dde0] p-6 text-center text-xs text-[#87939b]">Aucune réalisation ajoutée.</div>}</div></div></div>{mediaMessage&&<p role="status" className="mt-3 rounded-lg bg-[#f3f6f7] p-3 text-xs text-[#526575]">{mediaMessage}</p>}</section>
     <form onSubmit={saveProfessional} className="rounded-2xl border border-[#e0e6e8] bg-white p-5 shadow-[0_8px_24px_rgba(16,56,94,.06)] sm:p-7">
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block text-xs font-bold text-[#506273]">Nom affiché<input required maxLength={100} value={form.displayName} onChange={e=>updateForm('displayName',e.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal"/></label>
-        <label className="block text-xs font-bold text-[#506273]">Métier<select required value={form.categoryId} onChange={e=>updateForm('categoryId',e.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] bg-white px-3 py-3 text-sm font-normal"><option value="">Choisir un métier</option>{categories.map(category=><option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+        <label className="block text-xs font-bold text-[#506273]">Métier<select required value={form.categoryId} onChange={e=>{updateForm('categoryId',e.target.value);setSelectedSkillIds([])}} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] bg-white px-3 py-3 text-sm font-normal"><option value="">Choisir un métier</option>{categories.map(category=><option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
         <label className="block text-xs font-bold text-[#506273]">Votre quartier<select value={form.neighborhood} onChange={e=>updateForm('neighborhood',e.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] bg-white px-3 py-3 text-sm font-normal">{neighborhoods.map(place=><option key={place}>{place}</option>)}</select></label>
         <label className="block text-xs font-bold text-[#506273]">Téléphone public (facultatif)<input type="tel" maxLength={32} value={form.phone} onChange={e=>updateForm('phone',e.target.value)} placeholder="Ex. +243…" className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal"/><span className="mt-1 block font-normal text-[#81909b]">Ce numéro pourra être affiché aux visiteurs.</span></label>
         <label className="block text-xs font-bold text-[#506273]">Expérience (années)<input type="number" min="0" max="80" step="1" required value={form.experienceYears} onChange={e=>updateForm('experienceYears',e.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal"/></label>
         <label className="block text-xs font-bold text-[#506273]">Tarif indicatif en CDF (facultatif)<input type="number" min="0" step="1" value={form.indicativeRate} onChange={e=>updateForm('indicativeRate',e.target.value)} placeholder="Laisser vide si sur devis" className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal"/></label>
       </div>
       <label className="mt-4 block text-xs font-bold text-[#506273]">Présentation professionnelle<textarea required minLength={20} maxLength={3000} rows={5} value={form.description} onChange={e=>updateForm('description',e.target.value)} placeholder="Décrivez vos services et votre expérience…" className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal"/></label>
+      <fieldset className="mt-4 rounded-xl border border-[#e5eaed] p-4"><legend className="px-1 text-xs font-bold text-[#506273]">Compétences précises</legend>{skillOptions.length?<div className="flex flex-wrap gap-2">{skillOptions.map(skill=><label key={skill.id} className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold ${selectedSkillIds.includes(skill.id)?'border-[#0d5ebd] bg-[#edf4fc] text-[#174572]':'border-[#dfe5e8] bg-white text-[#657785]'}`}><input type="checkbox" checked={selectedSkillIds.includes(skill.id)} onChange={event=>setSelectedSkillIds(current=>event.target.checked?[...current,skill.id]:current.filter(id=>id!==skill.id))} className="accent-[#0d5ebd]"/>{skill.name}</label>)}</div>:<p className="text-xs leading-5 text-[#81909b]">Aucune compétence n’est configurée pour ce métier. Votre métier et votre présentation restent enregistrés ; l’administrateur peut ajouter des compétences dans Supabase.</p>}</fieldset>
       <label className="mt-4 block text-xs font-bold text-[#506273]">Zones d’intervention <span className="font-normal text-[#81909b]">(séparées par des virgules)</span><input value={form.serviceArea} onChange={e=>updateForm('serviceArea',e.target.value)} placeholder="Himbi, Katindo…" className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal"/></label>
       <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-xl bg-[#f5f8fa] p-4 text-sm font-semibold text-[#435c70]"><input type="checkbox" checked={form.available} onChange={e=>updateForm('available',e.target.checked)} className="h-4 w-4 accent-[#0d5ebd]"/>Je suis disponible pour recevoir des demandes</label>
       {message && <p role="status" className="mt-4 rounded-lg bg-[#f3f6f7] p-3 text-sm leading-5 text-[#526575]">{message}</p>}
       <button type="submit" disabled={saving || categories.length===0} className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#0d5ebd] px-5 py-3 text-sm font-bold text-white transition hover:bg-[#0b4fa7] disabled:cursor-not-allowed disabled:opacity-60"><Check size={17}/>{saving?'Enregistrement…':status?'Enregistrer les modifications':'Créer ma fiche professionnelle'}</button>
     </form>
+    <section className="mt-6 rounded-2xl border border-[#e0e6e8] bg-white p-5 shadow-[0_8px_24px_rgba(16,56,94,.06)] sm:p-7">
+      <div className="flex items-center justify-between"><div><h2 className="font-serif text-xl font-bold text-[#183451]">Demandes reçues</h2><p className="mt-1 text-xs text-[#78858e]">Demandes enregistrées dans votre compte</p></div><span className="rounded-full bg-[#eef2f4] px-2.5 py-1 text-xs font-bold text-[#456178]">{requests.filter(r=>r.status!=='cancelled').length}</span></div>
+      {requests.length ? <div className="mt-4 space-y-3">{requests.map(request=><article key={request.id} className="rounded-xl border border-[#e5e9ea] p-4"><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-sm font-bold text-[#2a455d]">{request.client?.[0]?.display_name??'Client'}</h3><StatusPill status={request.status==='pending'?'En attente':request.status==='accepted'?'Acceptée':request.status==='in_progress'?'En cours':request.status==='completed'?'Terminée':request.status==='declined'?'Refusée':'Annulée'}/></div><p className="mt-2 text-sm leading-5 text-[#5e6d78]">{request.description}</p><p className="mt-2 text-[10px] text-[#84919a]">{request.neighborhood??'Quartier non précisé'} · {new Date(request.created_at).toLocaleDateString('fr-FR')}</p>{professionalRequestTransitions(request.status).length>0&&<label className="mt-3 block text-[10px] font-bold uppercase tracking-wider text-[#76848c]">Mettre à jour<select value="" onChange={e=>void updateRequestStatus(request.id,e.target.value)} className="mt-1 block w-full rounded-lg border border-[#dfe5e8] bg-white px-3 py-2 text-xs font-semibold normal-case tracking-normal text-[#29465e]"><option value="" disabled>Choisir une action</option>{professionalRequestTransitions(request.status).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>}</article>)}</div>:<div className="mt-4 rounded-xl border border-dashed border-[#d4dde0] p-8 text-center"><Clock3 size={22} className="mx-auto text-[#82939d]"/><p className="mt-3 text-sm font-semibold text-[#476075]">Aucune demande reçue pour le moment</p><p className="mt-1 text-xs text-[#87939b]">Les nouvelles demandes envoyées par les clients apparaîtront ici.</p></div>}
+    </section>
   </div>;
 }
 
-function DemoProSpace() {
-  const {data,setData}=useDemo();
-  const [selected,setSelected]=useState('p1');
-  const pro=data.professionals.find(p=>p.profileId===selected)??data.professionals[0];
-  const profile=data.profiles.find(p=>p.id===pro.profileId)!;
-  const [saved,setSaved]=useState(false);
-  const [portfolioMessage,setPortfolioMessage]=useState('');
-  const [photoMessage,setPhotoMessage]=useState('');
-  const updateProfile=(field:keyof Profile,value:string)=>setData(prev=>({...prev,profiles:prev.profiles.map(p=>p.id===selected?{...p,[field]:value}:p)}));
-  const updatePro=(field:keyof Professional,value:string|number|string[])=>setData(prev=>({...prev,professionals:prev.professionals.map(p=>p.profileId===selected?{...p,[field]:value}:p)}));
-  const uploadProfilePhoto=(file:File|null)=>{
-    if(!file)return;
-    if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>350_000){setPhotoMessage('Choisissez une image PNG, JPEG ou WebP de 350 Ko maximum.');return;}
-    const reader=new FileReader();
-    reader.onload=()=>{
-      if(typeof reader.result!=='string'){setPhotoMessage('Impossible de lire cette image. Réessayez avec un autre fichier.');return;}
-      updateProfile('avatar',reader.result);
-      setPhotoMessage('Photo de profil enregistrée dans ce navigateur.');
-    };
-    reader.onerror=()=>setPhotoMessage('Impossible de lire cette image. Réessayez avec un autre fichier.');
-    reader.readAsDataURL(file);
+type AdminAccountRecord = { user_id: string; email: string | null; display_name: string; role: string | null; neighborhood: string | null; created_at: string; profile_exists: boolean };
+type AdminProfessionalRecord = { profile_id: string; display_name: string; neighborhood: string | null; category_name: string; status: string; moderation_reason: string | null; description: string; experience_years: number; indicative_rate: number | null; rate_currency: string; available: boolean; service_area: string[]; public_contact_phone: string | null; skills: string[]; avatar_path: string | null; portfolio_paths: string[]; verified_at: string | null; created_at: string };
+type AdminCategoryRecord = { id: string; name: string; description: string | null };
+type AdminSkillRecord = { id: string; category_id: string; name: string };
+
+function LiveAdminPage() {
+  const [tab, setTab] = useState<'accounts' | 'professionals' | 'catalog'>('accounts');
+  const [accounts, setAccounts] = useState<AdminAccountRecord[]>([]);
+  const [professionals, setProfessionals] = useState<AdminProfessionalRecord[]>([]);
+  const [categories, setCategories] = useState<AdminCategoryRecord[]>([]);
+  const [skills, setSkills] = useState<AdminSkillRecord[]>([]);
+  const [categoryName, setCategoryName] = useState('');
+  const [categoryDescription, setCategoryDescription] = useState('');
+  const [skillDrafts, setSkillDrafts] = useState<Record<string,string>>({});
+  const [pendingDeleteCategory, setPendingDeleteCategory] = useState('');
+  const [pendingDeleteSkill, setPendingDeleteSkill] = useState('');
+  const [catalogBusy, setCatalogBusy] = useState(false);
+  const [catalogMessage, setCatalogMessage] = useState('');
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState('');
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const refresh = async () => {
+    if (!supabase) return;
+    setLoading(true);
+    setError('');
+    const [{ data: accountRows, error: accountError }, { data: professionalRows, error: professionalError }, { data: categoryRows, error: categoryError }, { data: skillRows, error: skillError }] = await Promise.all([
+      supabase.rpc('admin_list_accounts'),
+      supabase.rpc('admin_list_professionals'),
+      supabase.from('categories').select('id, name, description').order('name'),
+      supabase.from('skills').select('id, category_id, name').order('name'),
+    ]);
+    if (accountError || professionalError || categoryError || skillError) {
+      setError(accountError?.code === 'PGRST202' || accountError?.message.includes('admin_list_accounts')
+        ? 'La fonction SQL admin_list_accounts manque dans Supabase. Exécutez supabase/sql-editor/06_admin_accounts.sql.'
+        : professionalError?.code === 'PGRST202' || professionalError?.message.includes('admin_list_professionals')
+          ? 'La liste des fiches détaillées manque dans Supabase. Exécutez supabase/sql-editor/08_admin_professional_details.sql, puis actualisez.'
+          : categoryError || skillError
+            ? 'Impossible de lire le catalogue de métiers. Vérifiez les politiques RLS des catégories et compétences.'
+            : accountError?.message ?? professionalError?.message ?? 'Impossible de charger les données administrateur.');
+    } else {
+      const proRows = (professionalRows ?? []) as Omit<AdminProfessionalRecord,'avatar_path'|'portfolio_paths'>[];
+      const ids = proRows.map(row=>row.profile_id);
+      const { data: mediaRows, error: mediaError } = ids.length
+        ? await supabase.from('professionals').select('profile_id, avatar_path, portfolio_paths').in('profile_id',ids)
+        : { data: [], error: null };
+      if (mediaError) {
+        setError(mediaError.message.includes('avatar_path') || mediaError.message.includes('portfolio_paths')
+          ? 'Le stockage des photos n’est pas installé dans Supabase. Exécutez supabase/sql-editor/09_professional_media.sql.'
+          : mediaError.message);
+      }
+      const mediaEntries = (mediaRows??[]) as {profile_id:string;avatar_path:string|null;portfolio_paths:string[]|null}[];
+      const mediaById = new Map(mediaEntries.map(row=>[row.profile_id,row] as const));
+      setAccounts((accountRows ?? []) as AdminAccountRecord[]);
+      setProfessionals(proRows.map(row=>({...row,avatar_path:mediaById.get(row.profile_id)?.avatar_path??null,portfolio_paths:mediaById.get(row.profile_id)?.portfolio_paths??[]})) as AdminProfessionalRecord[]);
+      setCategories((categoryRows??[]) as AdminCategoryRecord[]);
+      setSkills((skillRows??[]) as AdminSkillRecord[]);
+    }
+    setLoading(false);
   };
-  const uploadPortfolio=(files:FileList|null)=>{
-    if(!files?.length)return;
-    const images=Array.from(files);
-    const currentImageCount=pro.portfolio.filter(item=>item.startsWith('data:image/')).length;
-    if(currentImageCount+images.length>3){setPortfolioMessage('Limite démo : 3 images au maximum par profil.');return;}
-    if(images.some(file=>!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>350_000)){setPortfolioMessage('Choisissez des images PNG, JPEG ou WebP de 350 Ko maximum.');return;}
-    Promise.all(images.map(file=>new Promise<string>((resolve,reject)=>{
-      const reader=new FileReader();
-      reader.onload=()=>typeof reader.result==='string'?resolve(reader.result):reject(new Error('Lecture image impossible'));
-      reader.onerror=()=>reject(new Error('Lecture image impossible'));
-      reader.readAsDataURL(file);
-    }))).then(uploaded=>{
-      setData(prev=>({...prev,professionals:prev.professionals.map(item=>item.profileId===selected?{...item,portfolio:[...item.portfolio,...uploaded]}:item)}));
-      setPortfolioMessage('Images enregistrées dans le stockage local de cette démo.');
-    }).catch(()=>setPortfolioMessage('Impossible de lire ces images. Réessayez avec un autre fichier.'));
+
+  useEffect(() => { void refresh(); }, []);
+
+  const review = async (profileId: string, status: 'verified' | 'rejected' | 'suspended') => {
+    if (!supabase) return;
+    const reason = reasons[profileId]?.trim() ?? '';
+    if ((status === 'rejected' || status === 'suspended') && reason.length < 3) {
+      setError('Saisissez un motif d’au moins 3 caractères pour refuser ou suspendre une fiche.');
+      return;
+    }
+    setBusyId(profileId);
+    setError('');
+    setNotice('');
+    const { error: reviewError } = await supabase.rpc('admin_review_professional', {
+      p_profile_id: profileId,
+      p_status: status,
+      p_reason: reason || null,
+    });
+    if (reviewError) setError(reviewError.message);
+    else {
+      setNotice(status === 'verified' ? 'Fiche validée.' : status === 'rejected' ? 'Fiche refusée.' : 'Fiche suspendue.');
+      await refresh();
+    }
+    setBusyId('');
   };
-  return <div className="page-enter mx-auto max-w-[1080px] px-4 py-10 sm:px-7"><PageTitle eyebrow="Espace professionnel · démonstration" title="Votre activité, mieux visible" text="Modifiez un profil fictif ou mettez à jour une demande reçue. Les changements restent dans ce navigateur."/>
-    <div className="mb-5"><DemoNote>Aucune authentification n’est configurée. Ce tableau de bord est un aperçu public de démonstration, pas un espace sécurisé.</DemoNote></div>
-    <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
-      <section className="rounded-2xl border border-[#e0e6e8] bg-white p-5"><div className="flex items-center justify-between"><h2 className="font-serif text-xl font-bold text-[#183451]">Modifier un profil démo</h2><select value={selected} onChange={e=>setSelected(e.target.value)} className="max-w-[150px] rounded-lg border border-[#dfe5e8] bg-white px-2 py-2 text-xs">{data.profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
-        <div className="mt-4 flex items-center gap-3 border-b border-[#edf0f1] pb-4"><Avatar profile={profile}/><div><div className="font-bold text-[#24425c]">{profile.name}</div><div className="text-xs text-[#79858e]">{pro.trade} · profil fictif</div></div></div>
-        <label className="mt-4 block text-xs font-bold text-[#586b7a]">Photo de profil<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>{uploadProfilePhoto(e.currentTarget.files?.[0]??null);e.currentTarget.value=''}} className="mt-1.5 block w-full rounded-lg border border-[#dfe5e8] px-3 py-2 text-xs font-normal"/></label><p aria-live="polite" className="mt-1 text-[10px] text-[#82909a]">PNG, JPEG ou WebP, 350 Ko maximum. Enregistrée uniquement dans ce navigateur. {photoMessage}</p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2"><EditField label="Nom affiché" value={profile.name} onChange={v=>updateProfile('name',v)}/><EditField label="Métier" value={pro.trade} onChange={v=>updatePro('trade',v)}/><EditField label="Quartier" value={profile.neighborhood} onChange={v=>updateProfile('neighborhood',v)}/><label className="block text-xs font-bold text-[#586b7a]">Disponibilité<select value={pro.availability} onChange={e=>updatePro('availability',e.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] bg-white px-3 py-2.5 text-sm font-normal">{['Disponible aujourd’hui','Disponible demain','Cette semaine','Indisponible'].map(v=><option key={v}>{v}</option>)}</select></label><EditField label="Expérience (années)" value={String(pro.experienceYears)} onChange={v=>updatePro('experienceYears',Number(v)||0)}/></div>
-        <label className="mt-3 block text-xs font-bold text-[#586b7a]">Présentation<textarea value={pro.description} onChange={e=>updatePro('description',e.target.value)} rows={4} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-2.5 text-sm font-normal"/></label>
-        <label className="mt-3 block text-xs font-bold text-[#586b7a]">Compétences <span className="font-normal text-[#89959d]">(séparées par des virgules)</span><input value={pro.skills.join(', ')} onChange={e=>updatePro('skills',e.target.value.split(',').map(x=>x.trim()).filter(Boolean))} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-2.5 text-sm font-normal"/></label>
-        <label className="mt-3 block text-xs font-bold text-[#586b7a]">Zones d’intervention <span className="font-normal text-[#89959d]">(séparées par des virgules)</span><input value={pro.serviceArea.join(', ')} onChange={e=>updatePro('serviceArea',e.target.value.split(',').map(x=>x.trim()).filter(Boolean))} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-2.5 text-sm font-normal"/></label>
-        <label className="mt-3 block text-xs font-bold text-[#586b7a]">Photos de réalisations (démo)<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={e=>{uploadPortfolio(e.currentTarget.files);e.currentTarget.value=''}} className="mt-1.5 block w-full rounded-lg border border-[#dfe5e8] px-3 py-2 text-xs font-normal"/></label><p className="mt-1 text-[10px] text-[#82909a]">3 images max, 350 Ko chacune. Stockées uniquement dans ce navigateur. {portfolioMessage}</p>
-        <div className="mt-2 flex flex-wrap gap-2">{pro.portfolio.map((item,index)=>item.startsWith('data:image/')?<div key={`upload-${index}`} className="relative"><img src={item} alt="Réalisation fictive" className="h-16 w-16 rounded-lg border border-[#dfe5e8] object-cover"/><button type="button" onClick={()=>updatePro('portfolio',pro.portfolio.filter((_,i)=>i!==index))} aria-label="Supprimer cette image démo" className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#183451] text-white"><X size={12}/></button></div>:null)}</div>
-        <button onClick={()=>{setSaved(true);window.setTimeout(()=>setSaved(false),2400)}} className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-[#183451] py-2.5 text-sm font-bold text-white">{saved?<><Check size={16}/>Modifications conservées dans la démo</>:'Enregistrer les modifications locales'}</button>
-      </section>
-      <section className="rounded-2xl border border-[#e0e6e8] bg-white p-5"><div className="flex items-center justify-between"><div><h2 className="font-serif text-xl font-bold text-[#183451]">Demandes reçues</h2><p className="mt-1 text-xs text-[#78858e]">Toutes données fictives</p></div><span className="rounded-full bg-[#eef2f4] px-2.5 py-1 text-xs font-bold text-[#456178]">{data.requests.filter(r=>r.professionalId===selected).length}</span></div>
-         <div className="mt-4 space-y-3">{data.requests.filter(r=>r.professionalId===selected).map(r=><article key={r.id} className="rounded-xl border border-[#e5e9ea] p-4"><div className="flex items-center justify-between"><h3 className="text-sm font-bold text-[#2a455d]">{r.clientName}</h3><StatusPill status={r.status}/></div><p className="mt-2 text-sm leading-5 text-[#5e6d78]">{r.description}</p><p className="mt-2 text-[10px] text-[#84919a]">{r.neighborhood} · {r.createdAt}</p><label className="mt-3 block text-[10px] font-bold uppercase tracking-wider text-[#76848c]">Mettre à jour<select value={r.status} onChange={e=>setData(prev=>({...prev,requests:prev.requests.map(x=>x.id===r.id?{...x,status:e.target.value}:x)}))} className="mt-1 block w-full rounded-lg border border-[#dfe5e8] bg-white px-3 py-2 text-xs font-semibold normal-case tracking-normal text-[#29465e]">{statusOptions.map(s=><option key={s}>{s}</option>)}</select></label></article>)}</div>
-        {!data.requests.some(r=>r.professionalId===selected)&&<div className="rounded-xl border border-dashed border-[#d4dde0] p-8 text-center"><Clock3 size={22} className="mx-auto text-[#82939d]"/><p className="mt-3 text-sm font-semibold text-[#476075]">Aucune demande pour ce profil</p><p className="mt-1 text-xs text-[#87939b]">Les nouvelles demandes de démonstration apparaîtront ici.</p></div>}
-        <div className="mt-4"><DemoNote>Les changements de statut sont locaux et ne préviennent aucun client.</DemoNote></div>
-      </section>
-    </div>
+
+  const catalogError = (error: {code?:string;message:string}) => {
+    if (error.code==='42501' || /permission denied/i.test(error.message)) return 'Permission SQL manquante. Exécutez supabase/sql-editor/11_admin_catalog_management.sql dans Supabase.';
+    if (error.code==='23503') return 'Cette ligne est encore utilisée par une fiche ou une compétence. Détachez-la avant de la supprimer.';
+    if (error.code==='23505') return 'Ce nom existe déjà dans cette catégorie.';
+    return error.message;
+  };
+
+  const addCategory = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!supabase) return;
+    const name=categoryName.trim();
+    if (!name || name.length>80) { setCatalogMessage('Le nom doit contenir entre 1 et 80 caractères.'); return; }
+    if (categories.some(category=>category.name.toLocaleLowerCase('fr')===name.toLocaleLowerCase('fr'))) { setCatalogMessage('Ce métier existe déjà.'); return; }
+    setCatalogBusy(true);setCatalogMessage('');
+    const {error}=await supabase.from('categories').insert({name,description:categoryDescription.trim()||null});
+    if(error) setCatalogMessage(catalogError(error));
+    else {setCategoryName('');setCategoryDescription('');setCatalogMessage('Métier ajouté au catalogue.');await refresh();}
+    setCatalogBusy(false);
+  };
+
+  const addSkill = async (categoryId:string) => {
+    if (!supabase) return;
+    const name=(skillDrafts[categoryId]??'').trim();
+    if (!name || name.length>80) { setCatalogMessage('Le nom de la compétence doit contenir entre 1 et 80 caractères.'); return; }
+    if (skills.some(skill=>skill.category_id===categoryId&&skill.name.toLocaleLowerCase('fr')===name.toLocaleLowerCase('fr'))) { setCatalogMessage('Cette compétence existe déjà pour ce métier.'); return; }
+    setCatalogBusy(true);setCatalogMessage('');
+    const {error}=await supabase.from('skills').insert({category_id:categoryId,name});
+    if(error) setCatalogMessage(catalogError(error));
+    else {setSkillDrafts(current=>({...current,[categoryId]:''}));setCatalogMessage('Compétence ajoutée.');await refresh();}
+    setCatalogBusy(false);
+  };
+
+  const deleteCategory = async (category:AdminCategoryRecord) => {
+    if (!supabase) return;
+    if (pendingDeleteCategory!==category.id) {setPendingDeleteCategory(category.id);return;}
+    setCatalogBusy(true);setCatalogMessage('');
+    const {error}=await supabase.from('categories').delete().eq('id',category.id);
+    if(error) setCatalogMessage(catalogError(error));
+    else {setPendingDeleteCategory('');setCatalogMessage(`Métier « ${category.name} » supprimé.`);await refresh();}
+    setCatalogBusy(false);
+  };
+
+  const deleteSkill = async (skill:AdminSkillRecord) => {
+    if (!supabase) return;
+    if (pendingDeleteSkill!==skill.id) {setPendingDeleteSkill(skill.id);return;}
+    setCatalogBusy(true);setCatalogMessage('');
+    const {error}=await supabase.from('skills').delete().eq('id',skill.id);
+    if(error) setCatalogMessage(catalogError(error));
+    else {setPendingDeleteSkill('');setCatalogMessage(`Compétence « ${skill.name} » supprimée.`);await refresh();}
+    setCatalogBusy(false);
+  };
+
+  const roleName = (role: string | null) => role === 'professional' ? 'Professionnel' : role === 'admin' ? 'Administrateur' : role === 'client' ? 'Client' : 'Profil manquant';
+  const statusName = (status: string) => status === 'verified' ? 'Validé' : status === 'rejected' ? 'Refusé' : status === 'suspended' ? 'Suspendu' : 'En attente';
+
+  return <div className="page-enter mx-auto max-w-[1240px] px-4 py-6 sm:px-7 sm:py-8">
+    <div className="mb-7 flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-[#10385e] via-[#174572] to-[#0d5ebd] p-6 text-white shadow-[0_18px_40px_rgba(16,56,94,.18)] sm:flex-row sm:items-end sm:p-8"><div><div className="mb-2 flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-[.2em] text-[#f4c35e]"><ShieldCheck size={15}/> Administration connectée</div><h1 className="font-serif text-3xl font-extrabold tracking-tight sm:text-4xl">Comptes réels</h1><p className="mt-2 max-w-xl text-sm leading-6 text-blue-100">Cette liste est chargée depuis Supabase, y compris les comptes qui n’ont pas encore créé leur fiche.</p></div><button onClick={()=>void refresh()} className="rounded-lg border border-white/25 bg-white/10 px-4 py-2.5 text-sm font-bold text-white hover:bg-white/20">Actualiser</button></div>
+    <div className="mb-5 rounded-xl border border-[#d7e5f7] bg-[#f3f8ff] px-4 py-3 text-xs leading-5 text-[#34516d]">Un compte client ou professionnel peut être présent ici sans apparaître dans la recherche. Les professionnels doivent créer une fiche puis attendre sa validation.</div>
+    <div className="mb-5 grid gap-3 sm:grid-cols-3"><Metric label="Comptes enregistrés" value={String(accounts.length)}/><Metric label="Professionnels actifs" value={String(professionals.filter(pro=>pro.status==='verified').length)}/><Metric label="Fiches à examiner" value={String(professionals.filter(pro=>pro.status==='pending').length)}/></div>
+    <div role="tablist" aria-label="Données administrateur" className="flex flex-wrap gap-1 rounded-xl border border-[#e4eaf0] bg-white p-1.5 shadow-sm"><button role="tab" aria-selected={tab==='accounts'} onClick={()=>setTab('accounts')} className={`rounded-lg px-4 py-2.5 text-sm font-bold ${tab==='accounts'?'bg-[#183451] text-white':'text-[#667887] hover:bg-[#f1f5f8]'}`}>Comptes ({accounts.length})</button><button role="tab" aria-selected={tab==='professionals'} onClick={()=>setTab('professionals')} className={`rounded-lg px-4 py-2.5 text-sm font-bold ${tab==='professionals'?'bg-[#183451] text-white':'text-[#667887] hover:bg-[#f1f5f8]'}`}>Fiches professionnelles ({professionals.length})</button><button role="tab" aria-selected={tab==='catalog'} onClick={()=>setTab('catalog')} className={`rounded-lg px-4 py-2.5 text-sm font-bold ${tab==='catalog'?'bg-[#183451] text-white':'text-[#667887] hover:bg-[#f1f5f8]'}`}>Métiers et compétences ({categories.length})</button></div>
+    {error&&<p role="alert" className="mt-4 rounded-xl border border-[#f0d8d4] bg-[#fff8f6] px-4 py-3 text-sm text-[#9f5145]">{error}</p>}{notice&&<p role="status" className="mt-4 rounded-xl border border-[#cfe4d4] bg-[#f5fbf6] px-4 py-3 text-sm text-[#327044]">{notice}</p>}
+    {loading?<div className="mt-5 rounded-2xl border border-[#e0e6e8] bg-white p-10 text-center text-sm text-[#647384]">Chargement des données Supabase…</div>:tab==='catalog'?<AdminCatalogPanel categories={categories} skills={skills} categoryName={categoryName} categoryDescription={categoryDescription} skillDrafts={skillDrafts} pendingDeleteCategory={pendingDeleteCategory} pendingDeleteSkill={pendingDeleteSkill} busy={catalogBusy} message={catalogMessage} onCategoryName={setCategoryName} onCategoryDescription={setCategoryDescription} onSkillDraft={(id,value)=>setSkillDrafts(current=>({...current,[id]:value}))} onAddCategory={addCategory} onAddSkill={addSkill} onDeleteCategory={deleteCategory} onDeleteSkill={deleteSkill} onCancelDeleteCategory={()=>setPendingDeleteCategory("")} onCancelDeleteSkill={()=>setPendingDeleteSkill("")} />:tab==='accounts'?<section className="mt-4 overflow-x-auto rounded-2xl border border-[#e0e6e8] bg-white shadow-sm"><table className="w-full min-w-[760px] text-left text-sm"><thead className="bg-[#f5f8fa] text-[10px] uppercase tracking-wider text-[#71808b]"><tr><th className="p-4">Adresse du compte</th><th className="p-4">Nom</th><th className="p-4">Type</th><th className="p-4">Quartier</th><th className="p-4">Profil</th><th className="p-4">Inscription</th></tr></thead><tbody>{accounts.map(account=><tr key={account.user_id} className="border-t border-[#edf0f1]"><td className="p-4 font-semibold text-[#29445c]">{account.email || 'E-mail indisponible'}</td><td className="p-4 text-[#526575]">{account.display_name}</td><td className="p-4"><span className="rounded-full bg-[#edf4fc] px-2.5 py-1 text-xs font-bold text-[#174572]">{roleName(account.role)}</span></td><td className="p-4 text-[#637480]">{account.neighborhood || '—'}</td><td className="p-4">{account.profile_exists?<span className="text-xs font-bold text-[#327044]">Créé</span>:<span className="text-xs font-bold text-[#a65445]">Manquant</span>}</td><td className="p-4 text-xs text-[#71808b]">{new Date(account.created_at).toLocaleDateString('fr-FR')}</td></tr>)}{accounts.length===0&&<tr><td colSpan={6} className="p-10 text-center text-sm text-[#71808b]">Aucun compte Auth trouvé.</td></tr>}</tbody></table></section>:<section className="mt-4 space-y-3">{professionals.map(pro=><AdminProfessionalCard key={pro.profile_id} pro={pro} reason={reasons[pro.profile_id]??''} busy={busyId===pro.profile_id} onReason={value=>setReasons(prev=>({...prev,[pro.profile_id]:value}))} onReview={status=>void review(pro.profile_id,status)}/ >)}{professionals.length===0&&<div className="rounded-2xl border border-dashed border-[#ccd7dc] bg-white px-5 py-12 text-center text-sm text-[#71808b]">Aucune fiche professionnelle n’a encore été envoyée.</div>}</section>}
   </div>;
 }
-function EditField({label,value,onChange}:{label:string;value:string;onChange:(v:string)=>void}) { return <label className="block text-xs font-bold text-[#586b7a]">{label}<input value={value} onChange={e=>onChange(e.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-2.5 text-sm font-normal"/></label>; }
 
-function AdminPage() {
-  const {data,setData}=useDemo();
-  const [tab,setTab]=useState('Profils');
-  const [category,setCategory]=useState('');
-  const [categoryMessage,setCategoryMessage]=useState('');
-  const [moderationReasons,setModerationReasons]=useState<Record<string,string>>({});
-  const [moderationError,setModerationError]=useState('');
-  const moderate=(profileId:string,status:'Profil fictif'|'Suspendu (démo)'|'Refusé (démo)')=>{
-    const reason=moderationReasons[profileId]?.trim()??'';
-    if(status!=='Profil fictif'&&reason.length<3){setModerationError('Ajoutez un motif d’au moins 3 caractères avant de suspendre ou refuser.');return;}
-    setData(prev=>({...prev,professionals:prev.professionals.map(p=>p.profileId===profileId?{...p,verificationStatus:status,suspended:status!=='Profil fictif',moderationReason:status==='Profil fictif'?undefined:reason}:p)}));
-    setModerationError('');
-  };
-  return <div className="page-enter mx-auto max-w-[1240px] px-4 py-8 sm:px-7 sm:py-10">
-    <div className="mb-7 flex flex-col justify-between gap-4 rounded-3xl bg-gradient-to-br from-[#10385e] via-[#174572] to-[#0d5ebd] p-6 text-white shadow-[0_18px_40px_rgba(16,56,94,.18)] sm:flex-row sm:items-end sm:p-8">
-      <div><div className="mb-2 flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-[.2em] text-[#f4c35e]"><ShieldCheck size={15}/> Console d’administration</div><h1 className="font-serif text-3xl font-extrabold tracking-tight sm:text-4xl">Tableau de bord</h1><p className="mt-2 max-w-xl text-sm leading-6 text-blue-100">Gérez les profils, les catégories de services et les signalements depuis un seul espace.</p></div>
-      <div className="rounded-xl border border-white/15 bg-white/10 px-4 py-3 text-xs text-blue-50"><div className="font-bold text-white">Environnement démo</div><div className="mt-1">Données enregistrées sur cet appareil</div></div>
-    </div>
-    <div className="mb-6"><DemoNote>Les modifications sont locales à cette démonstration et ne changent pas les données de la base.</DemoNote></div>
-    <div className="grid gap-4 sm:grid-cols-3">
-      <div className="rounded-2xl border border-[#e4eaf0] bg-white p-5 shadow-[0_5px_18px_rgba(16,56,94,.05)]"><div className="flex items-center justify-between"><span className="text-xs font-bold text-[#71808b]">PROFILS</span><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#eaf2fb] text-[#0d5ebd]"><UserRound size={19}/></span></div><div className="mt-3 text-3xl font-extrabold tracking-tight text-[#183451]">{data.professionals.length}</div><div className="mt-1 text-xs text-[#71808b]">Profils professionnels</div></div>
-      <div className="rounded-2xl border border-[#e4eaf0] bg-white p-5 shadow-[0_5px_18px_rgba(16,56,94,.05)]"><div className="flex items-center justify-between"><span className="text-xs font-bold text-[#71808b]">DEMANDES</span><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#fff5df] text-[#a57934]"><Clock3 size={19}/></span></div><div className="mt-3 text-3xl font-extrabold tracking-tight text-[#183451]">{data.requests.length}</div><div className="mt-1 text-xs text-[#71808b]">Demandes reçues</div></div>
-      <div className="rounded-2xl border border-[#e4eaf0] bg-white p-5 shadow-[0_5px_18px_rgba(16,56,94,.05)]"><div className="flex items-center justify-between"><span className="text-xs font-bold text-[#71808b]">À EXAMINER</span><span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#f9eeec] text-[#a65445]"><Info size={19}/></span></div><div className="mt-3 text-3xl font-extrabold tracking-tight text-[#183451]">{data.reports.filter(r=>r.status==='Ouvert').length}</div><div className="mt-1 text-xs text-[#71808b]">Signalements ouverts</div></div>
-    </div>
-    <div role="tablist" aria-label="Sections d’administration" className="mt-8 flex gap-1 overflow-x-auto rounded-xl border border-[#e4eaf0] bg-white p-1.5 shadow-sm">{['Profils','Catégories','Signalements'].map(t=><button role="tab" aria-selected={tab===t} key={t} onClick={()=>setTab(t)} className={`whitespace-nowrap rounded-lg px-4 py-2.5 text-sm font-bold transition ${tab===t?'bg-[#183451] text-white shadow-sm':'text-[#667887] hover:bg-[#f1f5f8] hover:text-[#183451]'}`}>{t}</button>)}</div>
-    {tab==='Profils'&&<div className="mt-4 overflow-hidden rounded-2xl border border-[#e0e6e8] bg-white shadow-[0_5px_20px_rgba(16,56,94,.05)]"><div className="border-b border-[#edf0f1] px-5 py-4"><h2 className="font-serif text-lg font-bold text-[#183451]">Gestion des profils</h2><p className="mt-1 text-xs text-[#78858e]">Examinez chaque profil et choisissez une action de modération.</p></div><div className="overflow-x-auto"><table className="w-full min-w-[920px] text-left text-xs"><thead className="bg-[#f5f8fa] text-[10px] uppercase tracking-wider text-[#71808b]"><tr><th className="p-4">Profil fictif</th><th className="p-4">Métier</th><th className="p-4">Statut</th><th className="p-4">Motif</th><th className="p-4">Actions</th></tr></thead><tbody>{data.professionals.map(p=>{const person=data.profiles.find(x=>x.id===p.profileId);return <tr key={p.profileId} className="border-t border-[#edf0f1] hover:bg-[#fbfcfd]"><td className="p-4 font-semibold text-[#2b465d]">{person?.name??'Profil démo'}</td><td className="p-4 text-[#637480]">{p.trade}</td><td className="p-4"><span className="rounded-full bg-[#edf4ef] px-2.5 py-1 font-semibold text-[#466b4d]">{p.verificationStatus}</span></td><td className="p-4"><input aria-label={`Motif de modération pour ${person?.name??'ce profil'}`} value={moderationReasons[p.profileId]??p.moderationReason??''} onChange={e=>setModerationReasons(prev=>({...prev,[p.profileId]:e.target.value}))} maxLength={500} className="w-48 rounded-lg border border-[#dfe5e8] px-3 py-2 text-xs outline-none focus:border-[#0d5ebd]" placeholder="Motif requis"/></td><td className="p-4"><div className="flex gap-1.5"><button onClick={()=>moderate(p.profileId,'Suspendu (démo)')} className="rounded-lg bg-[#fff4df] px-2.5 py-2 font-bold text-[#8c672a] hover:bg-[#ffebc5]">Suspendre</button><button onClick={()=>moderate(p.profileId,'Refusé (démo)')} className="rounded-lg bg-[#f9eeec] px-2.5 py-2 font-bold text-[#994d43] hover:bg-[#f3dfdb]">Refuser</button><button onClick={()=>moderate(p.profileId,'Profil fictif')} className="rounded-lg bg-[#edf4ef] px-2.5 py-2 font-bold text-[#466b4d] hover:bg-[#dfeee2]">Réactiver</button></div>{p.moderationReason&&<p className="mt-2 max-w-52 text-[10px] text-[#8b5144]">Motif : {p.moderationReason}</p>}</td></tr>})}</tbody></table></div>{moderationError&&<p role="alert" className="border-t border-[#edf0f1] bg-[#fff8f6] px-4 py-3 text-xs text-[#9f5145]">{moderationError}</p>}</div>}
-    {tab==='Catégories'&&<section className="mt-4 overflow-hidden rounded-2xl border border-[#e0e6e8] bg-white shadow-[0_5px_20px_rgba(16,56,94,.05)]"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#edf0f1] px-5 py-4"><div><h2 className="font-serif text-lg font-bold text-[#183451]">Catégories de services</h2><p className="mt-1 text-xs text-[#78858e]">Ajoutez les métiers proposés et retirez ceux qui ne sont plus utiles.</p></div><span className="rounded-full bg-[#edf4fc] px-3 py-1.5 text-xs font-bold text-[#174572]">{data.categories.length} catégorie{data.categories.length===1?'':'s'}</span></div>
-      <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-3">{data.categories.map(c=><div key={c.id} className="group flex min-h-[76px] items-center justify-between gap-3 rounded-xl border border-[#e4eaf0] bg-[#fbfcfd] p-3 transition hover:border-[#bfd2e6] hover:bg-white"><div className="flex min-w-0 items-center gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#eaf2fb] text-sm font-extrabold text-[#174572]">{c.icon}</span><span className="text-sm font-bold leading-5 text-[#29445c]">{c.label}</span></div><button type="button" onClick={()=>setData(prev=>({...prev,categories:prev.categories.filter(x=>x.id!==c.id)}))} aria-label={`Supprimer la catégorie ${c.label}`} title={`Supprimer ${c.label}`} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#f0d8d4] bg-white text-[#a65445] transition hover:bg-[#f9eeec] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d89082]"><Trash2 size={15}/></button></div>)}
-      {data.categories.length===0&&<p className="col-span-full rounded-xl border border-dashed border-[#d4dde0] p-8 text-center text-sm text-[#71808b]">Aucune catégorie. Ajoutez votre premier service ci-dessous.</p>}</div>
-      <form onSubmit={e=>{e.preventDefault();const label=category.trim();if(!label){setCategoryMessage('Saisissez un nom de catégorie.');return;}if(data.categories.some(c=>c.label.toLocaleLowerCase('fr')===label.toLocaleLowerCase('fr'))){setCategoryMessage('Cette catégorie existe déjà.');return;}setData(prev=>({...prev,categories:[...prev.categories,{id:`custom-${Date.now()}`,label,icon:label.slice(0,2).toLocaleUpperCase('fr')}]}));setCategory('');setCategoryMessage('Catégorie ajoutée.');}} className="border-t border-[#edf0f1] bg-[#f7f9fb] p-5"><label htmlFor="admin-category" className="mb-2 block text-xs font-bold text-[#435c70]">Ajouter une catégorie</label><div className="flex flex-col gap-2 sm:flex-row"><input id="admin-category" value={category} onChange={e=>{setCategory(e.target.value);setCategoryMessage('')}} placeholder="Ex. Peinture, couture, jardinage…" maxLength={80} className="min-w-0 flex-1 rounded-lg border border-[#d6e0e8] bg-white px-3.5 py-3 text-sm outline-none transition placeholder:text-[#93a0aa] focus:border-[#0d5ebd] focus:ring-2 focus:ring-[#0d5ebd]/10"/><button type="submit" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#0d5ebd] px-5 text-sm font-bold text-white shadow-sm transition hover:bg-[#0b4fa7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f3b52f]"><Plus size={17}/>Ajouter la catégorie</button></div>{categoryMessage&&<p aria-live="polite" className={`mt-2 text-xs font-semibold ${categoryMessage==='Catégorie ajoutée.'?'text-[#466b4d]':'text-[#a65445]'}`}>{categoryMessage}</p>}</form>
-    </section>}
-    {tab==='Signalements'&&(data.reports.length?<div className="mt-4 space-y-3">{data.reports.map(report=>{const person=data.profiles.find(p=>p.id===report.professionalId);return <article key={report.id} className="rounded-xl border border-[#e0e6e8] bg-white p-4 sm:flex sm:items-center sm:justify-between"><div><div className="flex items-center gap-2"><h2 className="font-bold text-[#29445c]">{person?.name??'Profil démo'}</h2><StatusPill status={report.status}/></div><p className="mt-1 text-sm text-[#62717e]">{report.reason}</p><p className="mt-1 text-[10px] text-[#8a969d]">{report.createdAt} · signalement fictif</p></div><div className="mt-3 flex gap-2 sm:mt-0"><button onClick={()=>setData(prev=>({...prev,reports:prev.reports.map(r=>r.id===report.id?{...r,status:'Traité'}:r)}))} className="rounded-md bg-[#edf4ef] px-3 py-2 text-xs font-bold text-[#466b4d]">Traiter</button><button onClick={()=>setData(prev=>({...prev,reports:prev.reports.map(r=>r.id===report.id?{...r,status:'Écarté'}:r)}))} className="rounded-md border border-[#dfe5e8] px-3 py-2 text-xs font-bold text-[#596a78]">Écarter</button></div></article>})}</div>:<div className="mt-4 rounded-xl border border-dashed border-[#ccd7dc] bg-white px-5 py-12 text-center"><ShieldCheck size={25} className="mx-auto text-[#8c9aa3]"/><h2 className="mt-3 font-serif text-lg font-bold text-[#183451]">Aucun signalement dans la démo</h2><p className="mt-1 text-xs text-[#77858e]">Les signalements créés sur un profil de démonstration apparaîtront ici.</p></div>)}
-  </div>;
+function AdminCatalogPanel({categories,skills,categoryName,categoryDescription,skillDrafts,pendingDeleteCategory,pendingDeleteSkill,busy,message,onCategoryName,onCategoryDescription,onSkillDraft,onAddCategory,onAddSkill,onDeleteCategory,onDeleteSkill,onCancelDeleteCategory,onCancelDeleteSkill}:{categories:AdminCategoryRecord[];skills:AdminSkillRecord[];categoryName:string;categoryDescription:string;skillDrafts:Record<string,string>;pendingDeleteCategory:string;pendingDeleteSkill:string;busy:boolean;message:string;onCategoryName:(value:string)=>void;onCategoryDescription:(value:string)=>void;onSkillDraft:(id:string,value:string)=>void;onAddCategory:(event:FormEvent)=>void;onAddSkill:(id:string)=>void;onDeleteCategory:(category:AdminCategoryRecord)=>void;onDeleteSkill:(skill:AdminSkillRecord)=>void;onCancelDeleteCategory:()=>void;onCancelDeleteSkill:()=>void}) {
+  return <section className="mt-4 space-y-4">
+    <form onSubmit={onAddCategory} className="rounded-2xl border border-[#e0e6e8] bg-white p-5 shadow-sm sm:p-6"><div className="mb-4"><h2 className="font-serif text-xl font-bold text-[#183451]">Ajouter un métier</h2><p className="mt-1 text-xs text-[#78858e]">Les métiers ajoutés ici sont proposés dans le formulaire professionnel et la recherche publique.</p></div><div className="grid gap-3 sm:grid-cols-2"><label className="block text-xs font-bold text-[#506273]">Nom du métier<input required maxLength={80} value={categoryName} onChange={event=>onCategoryName(event.target.value)} placeholder="Ex. Peinture" className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal"/></label><label className="block text-xs font-bold text-[#506273]">Description courte<input maxLength={500} value={categoryDescription} onChange={event=>onCategoryDescription(event.target.value)} placeholder="Services proposés dans cette catégorie" className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal"/></label></div><button disabled={busy} className="mt-3 inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[#0d5ebd] px-4 py-2 text-xs font-bold text-white disabled:opacity-60"><Plus size={15}/>Ajouter le métier</button></form>
+    {message&&<p role="status" className="rounded-xl border border-[#d7e5f7] bg-[#f3f8ff] px-4 py-3 text-xs leading-5 text-[#34516d]">{message}</p>}
+    <div className="grid gap-4 md:grid-cols-2">{categories.map(category=>{const categorySkills=skills.filter(skill=>skill.category_id===category.id);return <article key={category.id} className="rounded-2xl border border-[#e0e6e8] bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-3"><div><h3 className="font-bold text-[#183451]">{category.name}</h3><p className="mt-1 text-xs leading-5 text-[#78858e]">{category.description||'Aucune description'}</p></div><span className="rounded-full bg-[#edf4fc] px-2.5 py-1 text-[10px] font-bold text-[#174572]">{categorySkills.length} compétence{categorySkills.length===1?'':'s'}</span></div><div className="mt-4 border-t border-[#edf0f1] pt-3"><p className="text-[10px] font-extrabold uppercase tracking-wider text-[#81909b]">Compétences proposées</p>{categorySkills.length?<ul className="mt-2 space-y-1.5">{categorySkills.map(skill=><li key={skill.id} className="flex items-center justify-between gap-2 rounded-lg bg-[#f7f9fb] px-3 py-2"><span className="text-xs font-medium text-[#526575]">{skill.name}</span><button type="button" disabled={busy} onClick={()=>onDeleteSkill(skill)} aria-label={pendingDeleteSkill===skill.id?`Confirmer la suppression de ${skill.name}`:`Supprimer ${skill.name}`} className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold ${pendingDeleteSkill===skill.id?'bg-[#9f5145] text-white':'text-[#9f5145] hover:bg-[#f9eeec]'}`}>{pendingDeleteSkill===skill.id?'Confirmer':'Supprimer'}</button></li>)}</ul>:<p className="mt-2 text-xs text-[#87939b]">Aucune compétence n’a encore été ajoutée.</p>}<div className="mt-3 flex gap-2"><input maxLength={80} value={skillDrafts[category.id]??''} onChange={event=>onSkillDraft(category.id,event.target.value)} aria-label={`Nouvelle compétence pour ${category.name}`} placeholder="Nouvelle compétence" className="min-w-0 flex-1 rounded-lg border border-[#dfe5e8] px-3 py-2 text-xs"/><button type="button" disabled={busy} onClick={()=>onAddSkill(category.id)} className="inline-flex items-center gap-1 rounded-lg border border-[#cbdced] px-3 py-2 text-xs font-bold text-[#174572] disabled:opacity-60"><Plus size={13}/>Ajouter</button></div></div><div className="mt-4 border-t border-[#edf0f1] pt-3">{pendingDeleteCategory===category.id?<div className="flex flex-wrap items-center gap-2"><span className="text-[10px] text-[#9f5145]">Confirmer ? Les métiers utilisés ne peuvent pas être supprimés.</span><button type="button" disabled={busy} onClick={()=>onDeleteCategory(category)} className="rounded-md bg-[#9f5145] px-3 py-1.5 text-[10px] font-bold text-white">Oui, supprimer</button><button type="button" onClick={onCancelDeleteCategory} className="rounded-md border border-[#dfe5e8] px-3 py-1.5 text-[10px] font-bold text-[#526575]">Annuler</button></div>:<button type="button" disabled={busy} onClick={()=>onDeleteCategory(category)} className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-bold text-[#9f5145] hover:bg-[#f9eeec] disabled:opacity-60"><Trash2 size={13}/>Supprimer le métier</button>}</div></article>})}</div>
+    {categories.length===0&&<div className="rounded-2xl border border-dashed border-[#ccd7dc] bg-white px-5 py-12 text-center text-sm text-[#71808b]">Aucun métier configuré. Ajoutez le premier avec le formulaire ci-dessus.</div>}
+  </section>;
+}
+
+function AdminProfessionalCard({pro,reason,busy,onReason,onReview}:{pro:AdminProfessionalRecord;reason:string;busy:boolean;onReason:(value:string)=>void;onReview:(status:'verified'|'rejected'|'suspended')=>void}) {
+  const statusName = pro.status==='verified'?'Professionnel actif':pro.status==='rejected'?'Refusée':pro.status==='suspended'?'Suspendue':'À valider';
+  return <article className="rounded-2xl border border-[#e0e6e8] bg-white p-5 shadow-sm sm:p-6"><div className="flex flex-wrap items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3">{pro.avatar_path?<img src={professionalMediaUrl(pro.avatar_path)} alt={`Photo de ${pro.display_name}`} className="h-14 w-14 rounded-full border border-[#e0e6e8] object-cover"/>:<div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#eaf2fb] text-sm font-extrabold text-[#174572]">{pro.display_name.split(/\s+/).slice(0,2).map(part=>part[0]).join('').toUpperCase()}</div>}<div className="min-w-0"><h2 className="text-lg font-bold text-[#183451]">{pro.display_name}</h2><p className="mt-1 text-sm text-[#617383]">{pro.category_name} · {pro.neighborhood||'Quartier non renseigné'}</p><p className="mt-2 break-all text-[10px] text-[#87939b]">ID {pro.profile_id}</p></div></div><span className={`rounded-full px-3 py-1 text-xs font-extrabold ${pro.status==='verified'?'bg-[#eaf6ed] text-[#327044]':pro.status==='rejected'||pro.status==='suspended'?'bg-[#f9eeec] text-[#9f5145]':'bg-[#fff4df] text-[#8c672a]'}`}>{statusName}</span></div>
+    <p className="mt-4 whitespace-pre-line text-sm leading-6 text-[#526575]">{pro.description||'Aucune présentation renseignée.'}</p>
+    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><Metric label="Expérience" value={`${pro.experience_years} ans`}/><Metric label="Tarif indicatif" value={pro.indicative_rate==null?'Sur devis':`${Number(pro.indicative_rate).toLocaleString('fr-FR')} ${pro.rate_currency}`}/><Metric label="Disponibilité" value={pro.available?'Disponible':'Sur demande'}/><Metric label="Téléphone public" value={pro.public_contact_phone||'Non renseigné'}/></div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-2"><div><p className="text-[10px] font-extrabold uppercase tracking-wider text-[#81909b]">Zones d’intervention</p><p className="mt-1 text-xs text-[#526575]">{pro.service_area?.length?pro.service_area.join(', '):'Non renseignées'}</p></div><div><p className="text-[10px] font-extrabold uppercase tracking-wider text-[#81909b]">Compétences</p><div className="mt-1 flex flex-wrap gap-1.5">{pro.skills?.length?pro.skills.map(skill=><span key={skill} className="rounded-full bg-[#edf4fc] px-2 py-1 text-[10px] font-semibold text-[#34516d]">{skill}</span>):<span className="text-xs text-[#87939b]">Aucune compétence précisée</span>}</div></div></div>
+    {pro.portfolio_paths?.length>0&&<div className="mt-4"><p className="text-[10px] font-extrabold uppercase tracking-wider text-[#81909b]">Photos de réalisations · {pro.portfolio_paths.length}</p><div className="mt-2 flex flex-wrap gap-2">{pro.portfolio_paths.map(path=><img key={path} src={professionalMediaUrl(path)} alt={`Réalisation de ${pro.display_name}`} className="h-16 w-16 rounded-lg border border-[#e0e6e8] object-cover"/>)}</div></div>}
+    {pro.moderation_reason&&<p className="mt-4 rounded-lg bg-[#fff8f6] p-3 text-xs text-[#9f5145]">Motif : {pro.moderation_reason}</p>}
+    <div className="mt-5 flex flex-col gap-2 border-t border-[#edf0f1] pt-4 sm:flex-row">{pro.status!=='verified'&&<button disabled={busy} onClick={()=>onReview('verified')} className="rounded-lg bg-[#edf4ef] px-4 py-2.5 text-xs font-bold text-[#466b4d] disabled:opacity-60">Valider et publier</button>}<input aria-label={`Motif de modération pour ${pro.display_name}`} value={reason} onChange={event=>onReason(event.target.value)} placeholder="Motif requis pour refuser ou suspendre" className="min-w-0 flex-1 rounded-lg border border-[#dfe5e8] px-3 py-2.5 text-xs"/>{pro.status!=='rejected'&&<button disabled={busy} onClick={()=>onReview('rejected')} className="rounded-lg bg-[#f9eeec] px-4 py-2.5 text-xs font-bold text-[#994d43] disabled:opacity-60">Refuser</button>}{pro.status!=='suspended'&&<button disabled={busy} onClick={()=>onReview('suspended')} className="rounded-lg border border-[#e7d5d2] px-4 py-2.5 text-xs font-bold text-[#994d43] disabled:opacity-60">Suspendre</button>}</div>
+  </article>;
 }
 
 function HowPage() {
@@ -811,16 +1127,17 @@ function HowPage() {
   return <div className="page-enter mx-auto max-w-[1050px] px-4 py-10 sm:px-7 sm:py-14"><PageTitle eyebrow="Simple, local, transparent" title="Des compétences proches. Un choix qui vous appartient." text="KaziGoma aide les habitants de Goma à découvrir les savoir-faire de leur quartier et les professionnels à faire connaître leur activité."/>
     <section className="rounded-2xl bg-[#183451] p-6 text-white sm:p-9"><div className="grid gap-7 sm:grid-cols-2">{steps.map(([n,title,text])=><div key={n} className="border-l border-[#f0bf62]/50 pl-4"><span className="text-xs font-extrabold tracking-widest text-[#f0bf62]">{n}</span><h2 className="mt-2 font-serif text-xl font-bold">{title}</h2><p className="mt-2 text-sm leading-6 text-[#cbd8e1]">{text}</p></div>)}</div></section>
     <div className="mt-8 grid gap-4 sm:grid-cols-2"><article className="rounded-xl border border-[#e0e6e8] bg-white p-5"><h3 className="font-serif text-lg font-bold text-[#183451]">Pour les habitants</h3><p className="mt-2 text-sm leading-6 text-[#687885]">Comparez plusieurs profils, consultez leur zone d’intervention et présentez votre besoin avant de prendre une décision.</p></article><article className="rounded-xl border border-[#e0e6e8] bg-white p-5"><h3 className="font-serif text-lg font-bold text-[#183451]">Pour les professionnels</h3><p className="mt-2 text-sm leading-6 text-[#687885]">Présentez vos services, votre expérience et les quartiers où vous intervenez. Un profil clair aide les clients à vous trouver.</p></article></div>
-    <div className="mt-5"><DemoNote>Les profils seront publiés après leur ajout et leur validation. Les avis seront affichés uniquement lorsqu’ils proviendront de prestations réelles.</DemoNote></div>
+    <div className="mt-5"><InfoNote>Les profils seront publiés après leur ajout et leur validation. Les avis seront affichés uniquement lorsqu’ils proviendront de prestations réelles.</InfoNote></div>
     <Link href="/" className="mt-6 inline-flex items-center gap-2 rounded-lg bg-[#183451] px-5 py-3 text-sm font-bold text-white">Trouver un professionnel <ArrowRight size={15}/></Link>
   </div>;
 }
 
 function ContactPage() {
-  const [sent,setSent]=useState(false);
-  const [errors,setErrors]=useState('');
-  return <div className="page-enter mx-auto grid max-w-[1050px] gap-8 px-4 py-10 sm:px-7 md:grid-cols-[.8fr_1.2fr] md:py-14"><div><PageTitle eyebrow="Échangeons" title="Nous sommes à l’écoute." text="Une question sur la démo, une suggestion ou un besoin d’information ? Écrivez-nous."/><div className="rounded-2xl bg-[#183451] p-6 text-white"><div className="text-[10px] font-bold uppercase tracking-[.16em] text-[#f0bf62]">Contact de démonstration</div><a href="mailto:bonjour@kazigoma.cd" className="mt-2 block text-lg font-bold">bonjour@kazigoma.cd</a><p className="mt-2 text-sm leading-6 text-[#cbd8e1]">Une adresse indicative pour la maquette. Aucun service de contact n’est encore connecté.</p></div></div>
-    <form onSubmit={e=>{e.preventDefault();setSent(true);setErrors('')}} className="rounded-2xl border border-[#e0e6e8] bg-white p-5 sm:p-7"><h2 className="font-serif text-xl font-extrabold text-[#183451]">Laisser un message</h2><p className="mt-1 text-xs text-[#78858e]">État d’envoi simulé. Rien n’est transmis.</p><div className="mt-5 grid gap-3 sm:grid-cols-2"><label className="text-xs font-bold text-[#556a79]">Nom<input required className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-2.5 text-sm font-normal"/></label><label className="text-xs font-bold text-[#556a79]">Adresse e-mail<input required type="email" className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-2.5 text-sm font-normal"/></label></div><label className="mt-3 block text-xs font-bold text-[#556a79]">Sujet<select className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] bg-white px-3 py-2.5 text-sm font-normal"><option>Question sur la plateforme</option><option>Je suis professionnel</option><option>Suggestion</option></select></label><label className="mt-3 block text-xs font-bold text-[#556a79]">Message<textarea required minLength={10} rows={5} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-2.5 text-sm font-normal"/></label>{errors&&<p className="mt-2 text-xs text-[#a34436]">{errors}</p>}{sent&&<div className="mt-3 rounded-lg bg-[#edf4ef] px-3 py-2.5 text-xs font-semibold text-[#43694c]">Message de test accepté. Il n’a pas été envoyé et ne sera pas conservé.</div>}<button className="mt-4 rounded-lg bg-[#183451] px-5 py-3 text-sm font-bold text-white">Simuler l’envoi</button></form>
+  return <div className="page-enter mx-auto max-w-[1050px] px-4 py-10 sm:px-7 sm:py-14"><PageTitle eyebrow="Échangeons" title="Nous sommes à l’écoute." text="Une question sur la plateforme ou besoin d’aide ? Contactez l’équipe KaziGoma."/>
+    <div className="grid gap-5 md:grid-cols-2">
+      <section className="rounded-2xl bg-[#183451] p-6 text-white shadow-[0_12px_30px_rgba(16,56,94,.12)] sm:p-8"><div className="text-[10px] font-bold uppercase tracking-[.16em] text-[#f0bf62]">Nous écrire</div><h2 className="mt-2 font-serif text-2xl font-extrabold">Par e-mail</h2><p className="mt-2 text-sm leading-6 text-[#cbd8e1]">Votre application de messagerie s’ouvrira pour envoyer directement votre demande.</p><a href="mailto:bonjour@kazigoma.cd" className="mt-5 inline-flex min-h-11 items-center rounded-lg bg-white px-4 py-2.5 text-sm font-extrabold text-[#183451]">bonjour@kazigoma.cd</a></section>
+      <section className="rounded-2xl border border-[#e0e6e8] bg-white p-6 shadow-sm sm:p-8"><div className="text-[10px] font-bold uppercase tracking-[.16em] text-[#a57934]">Accès rapides</div><h2 className="mt-2 font-serif text-2xl font-extrabold text-[#183451]">Que souhaitez-vous faire ?</h2><div className="mt-5 grid gap-3"><Link href="/inscription?next=%2Fespace%2Fpro" className="rounded-xl border border-[#dfe5e8] p-4 transition hover:border-[#0d5ebd] hover:bg-[#f7fbff]"><span className="block text-sm font-extrabold text-[#183451]">Inscrire mon activité</span><span className="mt-1 block text-xs leading-5 text-[#71808b]">Créez votre compte professionnel et configurez votre fiche.</span></Link><Link href="/" className="rounded-xl border border-[#dfe5e8] p-4 transition hover:border-[#0d5ebd] hover:bg-[#f7fbff]"><span className="block text-sm font-extrabold text-[#183451]">Trouver un professionnel</span><span className="mt-1 block text-xs leading-5 text-[#71808b]">Parcourez les profils vérifiés sans créer de compte.</span></Link></div></section>
+    </div>
   </div>;
 }
 

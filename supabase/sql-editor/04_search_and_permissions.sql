@@ -122,9 +122,11 @@ revoke all on function public.admin_review_professional(uuid, public.professiona
 grant execute on function public.admin_review_professional(uuid, public.professional_status, text) to authenticated;
 
 grant select on public.categories, public.skills to anon, authenticated;
+grant insert, update, delete on public.categories, public.skills to authenticated;
 grant select, insert, update, delete on public.profiles to authenticated;
-grant select on public.professionals to authenticated;
 revoke all on public.professionals from anon, authenticated;
+-- RLS limits authenticated reads to verified rows, the owner's own row, or admins.
+grant select on public.professionals to authenticated;
 grant insert, update, delete on public.professionals to authenticated;
 grant select, insert, update, delete on public.professional_skills,
   public.service_requests, public.reviews, public.reports, public.favorites to authenticated;
