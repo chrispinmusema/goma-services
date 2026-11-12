@@ -401,18 +401,7 @@ body {
   line-height: 1.65;
 }
 
-.home-hero-overlay {
-  background: linear-gradient(90deg, rgba(248, 251, 255, .98) 0%, rgba(248, 251, 255, .94) 44%, rgba(248, 251, 255, .76) 70%, rgba(248, 251, 255, .38) 100%);
-}
-
-@media (min-width: 640px) {
-  .home-hero-overlay {
-    background: linear-gradient(90deg, rgba(248, 251, 255, .99) 0%, rgba(248, 251, 255, .96) 32%, rgba(248, 251, 255, .72) 48%, rgba(248, 251, 255, .12) 76%, rgba(248, 251, 255, 0) 100%);
-  }
-}
-
-@media (min-width: 640px) {
-  main > .page-enter > .home-hero h1 { font-size: clamp(3rem, 4.2vw, 3.75rem); }
+.home-hero-overlay {  4.2vw, 3.75rem); }
 }
 
 @media (min-width: 1024px) {
