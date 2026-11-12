@@ -124,8 +124,13 @@ comptes comme clients ou professionnels et réserve les opérations
 d'administration aux comptes dont `public.profiles.role` vaut `admin`.
 
 Après avoir configuré Supabase, appliqué les scripts SQL nécessaires et créé votre compte,
-attribuez le rôle depuis le SQL Editor du tableau de bord Supabase en remplaçant
-`VOTRE-UUID` par l'identifiant de votre compte vérifié :
+attribuez le rôle à votre propre compte depuis le SQL Editor. Le script
+`13_assign_admin_by_email.sql` est prévu pour cela : remplacez `VOTRE-EMAIL`
+par l'adresse exacte du compte que vous contrôlez, puis exécutez le script.
+Il crée la ligne `public.profiles` si elle manque et attribue le rôle admin.
+Ne l'exécutez pas pour un autre compte.
+
+Vous pouvez aussi utiliser l'UUID du compte vérifié :
 
 ```sql
 update public.profiles
