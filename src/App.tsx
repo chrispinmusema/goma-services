@@ -553,6 +553,7 @@ function AuthPage() {
   const signup=location.split('?')[0]==='/inscription';
   const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [name,setName]=useState('');
   const [role,setRole]=useState<'client'|'professional'>('client'); const [message,setMessage]=useState('');
+  const [sessionProfileError,setSessionProfileError]=useState(''); const [sessionEmail,setSessionEmail]=useState('');
   const [canResendConfirmation,setCanResendConfirmation]=useState(false);
   const [busy,setBusy]=useState(false);
   useEffect(() => {
@@ -560,10 +561,13 @@ function AuthPage() {
     let active = true;
     void supabase.auth.getUser().then(async ({ data, error }) => {
       if (!active || error || !data.user) return;
+      setSessionEmail(data.user.email ?? '');
       try {
         const profile = await ensureAccountProfile(data.user);
         if (active) setLocation(requestedDestination() ?? accountHome(profile.role));
-      } catch { /* The form reports setup and permission errors when the user submits. */ }
+      } catch (error) {
+        if (active) setSessionProfileError(error instanceof Error ? error.message : 'Impossible de charger le profil associé à cette session.');
+      }
     });
     return () => { active = false; };
   }, [setLocation]);
@@ -615,6 +619,7 @@ function AuthPage() {
     setMessage(error ? authErrorMessage(error, 'signup') : 'Si cette adresse attend une confirmation, un nouveau lien vient de lui être envoyé. Vérifiez aussi vos courriers indésirables.');
     setBusy(false);
   };
+  if (sessionProfileError) return <div className="mx-auto max-w-[520px] px-5 py-12"><PageTitle eyebrow="Session active" title="Vous êtes déjà connecté" text={`La session de ${sessionEmail || 'votre compte'} est ouverte, mais le profil n’a pas pu être chargé. ${sessionProfileError}`}/><div className="mt-5 grid gap-3"><button onClick={()=>window.location.reload()} className="w-full rounded-lg bg-[#183451] py-3 text-sm font-bold text-white">Réessayer le chargement</button><button onClick={async()=>{if(!supabase)return;const {error}=await supabase.auth.signOut();if(error)setSessionProfileError(error.message);else setSessionProfileError('')}} className="w-full rounded-lg border border-[#dfe5e8] bg-white py-3 text-sm font-bold text-[#405268]">Se déconnecter</button><Link href="/" className="text-center text-sm font-bold text-[#0d5ebd]">Retour à l’accueil</Link></div></div>;
   return <div className="mx-auto flex min-h-[calc(100dvh-48px)] max-w-[520px] items-center justify-center px-5 py-10 sm:px-7 xl:min-h-[calc(100dvh-60px)]">
     <form onSubmit={submit} className="w-full rounded-2xl border border-[#e0e6e8] bg-white p-6 shadow-[0_16px_40px_rgba(24,52,81,0.08)] sm:p-8"><div className="mb-5"><div className="text-[10px] font-extrabold uppercase tracking-[.15em] text-[#a57934]">{signup?'Créer un compte':'Connexion'}</div><h1 className="mt-1 font-serif text-2xl font-extrabold text-[#183451]">{signup?'Rejoindre KaziGoma':'Accéder à mon compte'}</h1></div>
       {signup&&<><label className="mb-4 block text-xs font-bold text-[#506273]">Nom complet<input autoComplete="name" value={name} onChange={e=>setName(e.target.value)} maxLength={100} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-3 text-sm font-normal" required/></label><label className="mb-4 block text-xs font-bold text-[#506273]">Je suis<select value={role} onChange={e=>setRole(e.target.value as 'client'|'professional')} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] bg-white px-3 py-3 text-sm font-normal"><option value="client">Un client</option><option value="professional">Un professionnel</option></select></label></>}
@@ -735,6 +740,7 @@ function LiveProSpace() {
   const [, setLocation] = useLocation();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [hasSession, setHasSession] = useState(false);
   const [userId, setUserId] = useState('');
   const [userEmail, setUserEmail] = useState('');
   const [role, setRole] = useState('');
@@ -758,6 +764,7 @@ function LiveProSpace() {
         const { data: auth, error: authError } = await supabase.auth.getUser();
         if (authError && !isMissingAuthSession(authError)) throw authError;
         if (!auth.user) { if (active) setLoading(false); return; }
+        if (active) { setHasSession(true); setUserEmail(auth.user.email ?? ''); }
         const [profile, { data: categoryRows, error: categoryError }, { data: requestRows, error: requestError }] = await Promise.all([
           ensureAccountProfile(auth.user),
           supabase.from('categories').select('id, name').order('name'),
@@ -935,6 +942,7 @@ function LiveProSpace() {
   const completionPercent = Math.round(completedProfileFields / completionChecklist.length * 100);
 
   if (loading) return <div className="mx-auto max-w-3xl px-5 py-16 text-sm text-[#647384]">Chargement de votre espace…</div>;
+  if (!userId && hasSession) return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Session active" title="Votre compte est connecté" text={`Nous avons reconnu ${userEmail || 'votre compte'}, mais son profil professionnel n’a pas pu être chargé. Il n’est pas nécessaire de vous reconnecter.`}/>{message&&<p role="alert" className="mb-4 rounded-xl border border-[#f0d8d4] bg-[#fff8f6] p-4 text-sm leading-6 text-[#9f5145]">{message}</p>}<div className="flex flex-wrap gap-3"><button onClick={()=>window.location.reload()} className="rounded-lg bg-[#183451] px-4 py-3 text-sm font-bold text-white">Réessayer</button><button onClick={async()=>{const {error}=await supabase!.auth.signOut();if(error){setMessage(error.message);return;}setHasSession(false);setUserEmail('');setMessage('Session fermée. Vous pouvez choisir un autre compte.')}} className="rounded-lg border border-[#dfe5e8] bg-white px-4 py-3 text-sm font-bold text-[#405268]">Se déconnecter</button></div></div>;
   if (!userId) return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Espace professionnel" title="Ouvrez votre espace professionnel" text="Créez un compte professionnel ou connectez-vous. Vous pourrez ensuite enregistrer votre fiche et suivre sa validation ici."/><div className="flex flex-wrap gap-3"><Link href="/inscription?next=%2Fespace%2Fpro" className="inline-flex rounded-lg bg-[#183451] px-4 py-3 text-sm font-bold text-white">Créer mon compte professionnel</Link><Link href="/connexion?next=%2Fespace%2Fpro" className="inline-flex rounded-lg border border-[#dfe5e8] bg-white px-4 py-3 text-sm font-bold text-[#405268]">J’ai déjà un compte</Link></div>{message&&<p role="alert" className="mt-3 text-sm text-[#a34436]">{message}</p>}</div>;
   if (role !== 'professional') return <div className="mx-auto max-w-3xl px-5 py-16"><PageTitle eyebrow="Espace réservé" title="Ce compte est un compte client" text="La session ouverte n’a pas le rôle professionnel. Déconnectez-vous pour créer une activité ou vous connecter avec un autre compte professionnel."/><button onClick={()=>void switchToProfessionalAccount()} className="rounded-lg bg-[#183451] px-4 py-3 text-sm font-bold text-white">Changer de compte professionnel</button>{message&&<p role="alert" className="mt-3 text-sm text-[#a34436]">{message}</p>}</div>;
 
