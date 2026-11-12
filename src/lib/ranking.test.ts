@@ -11,9 +11,9 @@ function createState(): DemoState {
       { id: 'suspended', name: 'Profil démo suspendu', role: 'Électricité', avatar: '03', neighborhood: 'Himbi', phone: 'Non attribué (démo)' },
     ],
     professionals: [
-      { profileId: 'near', trade: 'Électricité', skills: ['Dépannage'], experienceYears: 2, description: 'Profil fictif', indicativeRate: 'Sur devis', availability: 'Disponible aujourd’hui', verificationStatus: 'Profil fictif', serviceArea: ['Himbi'], latitude: -1.67, longitude: 29.222, reviewCount: 1, ratingAverage: 5, portfolio: [] },
-      { profileId: 'far', trade: 'Électricité', skills: ['Installation électrique'], experienceYears: 2, description: 'Profil fictif', indicativeRate: 'Sur devis', availability: 'Disponible demain', verificationStatus: 'Profil fictif', serviceArea: ['Kyeshero'], latitude: -1.70, longitude: 29.24, reviewCount: 0, ratingAverage: 0, portfolio: [] },
-      { profileId: 'suspended', trade: 'Électricité', skills: ['Dépannage'], experienceYears: 2, description: 'Profil fictif', indicativeRate: 'Sur devis', availability: 'Disponible aujourd’hui', verificationStatus: 'Suspendu (démo)', serviceArea: ['Himbi'], latitude: -1.67, longitude: 29.222, reviewCount: 10, ratingAverage: 5, portfolio: [] },
+      { profileId: 'near', trade: 'Électricité', skills: ['Dépannage'], experienceYears: 2, description: 'Profil fictif', availability: 'Disponible aujourd’hui', verificationStatus: 'Profil fictif', serviceArea: ['Himbi'], latitude: -1.67, longitude: 29.222, reviewCount: 1, ratingAverage: 5, portfolio: [] },
+      { profileId: 'far', trade: 'Électricité', skills: ['Installation électrique'], experienceYears: 2, description: 'Profil fictif', availability: 'Disponible demain', verificationStatus: 'Profil fictif', serviceArea: ['Kyeshero'], latitude: -1.70, longitude: 29.24, reviewCount: 0, ratingAverage: 0, portfolio: [] },
+      { profileId: 'suspended', trade: 'Électricité', skills: ['Dépannage'], experienceYears: 2, description: 'Profil fictif', availability: 'Disponible aujourd’hui', verificationStatus: 'Suspendu (démo)', serviceArea: ['Himbi'], latitude: -1.67, longitude: 29.222, reviewCount: 10, ratingAverage: 5, portfolio: [] },
     ],
     categories: [],
     requests: [],

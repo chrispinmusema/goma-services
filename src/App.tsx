@@ -101,8 +101,8 @@ function PageTitle({ eyebrow, title, text }: { eyebrow?: string; title: string; 
   return <div className="mb-7"><div className="mb-2 text-[10px] font-extrabold uppercase tracking-[.18em] text-[#a57934]">{eyebrow}</div><h1 className="font-serif text-3xl font-extrabold tracking-[-1px] text-[#183451] sm:text-[38px]">{title}</h1>{text && <p className="mt-2 max-w-2xl text-sm leading-6 text-[#647384]">{text}</p>}</div>;
 }
 function DemoNote({ children }: { children: ReactNode }) { return <div className="flex gap-2 rounded-lg border border-[#ead9b7] bg-[#fff9ee] px-3 py-2.5 text-xs leading-5 text-[#735b35]"><Info size={15} className="mt-0.5 shrink-0"/><span>{children}</span></div>; }
-function Avatar({ profile, large = false }: { profile: Profile; large?: boolean }) { return <div className={`flex shrink-0 items-center justify-center rounded-full bg-[#e9eff2] font-bold text-[#284863] ${large ? 'h-[68px] w-[68px] text-lg' : 'h-11 w-11 text-xs'}`}>{profile.avatar}</div>; }
-function ProfessionalPortrait({ profileId, name }: { profileId: string; name: string }) {
+function Avatar({ profile, large = false }: { profile: Profile; large?: boolean }) { return <div className={`flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#e9eff2] font-bold text-[#284863] ${large ? 'h-[68px] w-[68px] text-lg' : 'h-11 w-11 text-xs'}`}>{profile.avatar.startsWith('data:image/') ? <img src={profile.avatar} alt={`Photo de profil de ${profile.name}`} className="h-full w-full object-cover"/> : profile.avatar}</div>; }
+function ProfessionalPortrait({ profileId, name, avatar }: { profileId: string; name: string; avatar?: string }) {
   const portraitPosition: Record<string, string> = {
     p1: '100% 39%',
     p2: '86% 39%',
@@ -112,16 +112,18 @@ function ProfessionalPortrait({ profileId, name }: { profileId: string; name: st
     p6: '75% 76%',
     p7: '74% 0%',
   };
-  return <div
-    role="img"
-    aria-label={`Portrait illustratif pour ${name}`}
-    className="h-[72px] w-[72px] shrink-0 rounded-full border-[3px] border-white bg-[#e9eff2] shadow-[0_2px_8px_rgba(24,52,81,0.12)] sm:h-[96px] sm:w-[96px]"
-    style={{
-      backgroundImage: "url('/Professional%20Services%20Marketplace%20Collage.png')",
-      backgroundPosition: portraitPosition[profileId] ?? '100% 39%',
-      backgroundSize: '600% auto',
-    }}
-  />;
+  return <div className="h-[72px] w-[72px] shrink-0 overflow-hidden rounded-full border-[3px] border-white bg-[#e9eff2] shadow-[0_2px_8px_rgba(24,52,81,0.12)] sm:h-[96px] sm:w-[96px]">
+    {avatar?.startsWith('data:image/') ? <img src={avatar} alt={`Photo de profil de ${name}`} className="h-full w-full object-cover"/> : <div
+      role="img"
+      aria-label={`Portrait illustratif pour ${name}`}
+      className="h-full w-full"
+      style={{
+        backgroundImage: "url('/Professional%20Services%20Marketplace%20Collage.png')",
+        backgroundPosition: portraitPosition[profileId] ?? '100% 39%',
+        backgroundSize: '600% auto',
+      }}
+    />}
+  </div>;
 }
 
 function HomePage() {
@@ -253,7 +255,7 @@ function HomePage() {
 function ProfessionalCard({ item, rank, saved, onFavorite }: { item: RankedProfessional; rank: number; saved: boolean; onFavorite:()=>void }) {
   return <article className="relative flex min-w-0 gap-3 rounded-2xl border border-[#e4ebf3] bg-white p-3.5 shadow-[0_5px_16px_rgba(24,52,81,0.07)] transition hover:-translate-y-0.5 hover:border-[#bfd5f5] hover:shadow-[0_12px_26px_rgba(24,52,81,0.11)] sm:gap-4 sm:p-4" data-testid={`card-professional-${item.pro.profileId}`}>
     <div className="relative mt-0.5 self-start">
-      <ProfessionalPortrait profileId={item.pro.profileId} name={item.profile.name}/>
+      <ProfessionalPortrait profileId={item.pro.profileId} name={item.profile.name} avatar={item.profile.avatar}/>
       <span aria-hidden="true" className="absolute bottom-2 right-1 h-3.5 w-3.5 rounded-full border-2 border-white bg-[#14b86a]"/>
     </div>
     <div className="min-w-0 flex-1 pr-7">
@@ -270,10 +272,7 @@ function ProfessionalCard({ item, rank, saved, onFavorite }: { item: RankedProfe
           <div className="flex items-center gap-1 text-[11px] font-bold text-[#263b5a]">{item.pro.reviewCount ? <><Star size={14} className="fill-[#f4ad19] text-[#f4ad19]"/>{item.pro.ratingAverage.toFixed(1)} <span className="font-normal text-[#60738d]">({item.pro.reviewCount} avis)</span></> : <span className="font-medium text-[#718096]">Avis indisponibles</span>}</div>
           <div className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full bg-[#e4f7eb] px-2 py-1 text-[9px] font-bold leading-3 text-[#168447] sm:text-[10px]"><span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#16a05b]"/>{item.pro.availability}</div>
         </div>
-        <div className="ml-auto flex min-w-[126px] flex-col items-end gap-1.5">
-          <div className="text-right text-[11px] font-extrabold leading-4 text-[#0758d5] sm:text-xs">{item.pro.indicativeRate}</div>
-          <Link href={`/professionnels/${item.pro.profileId}`} className="inline-flex min-h-8 w-full items-center justify-center gap-2 rounded-full border border-[#2678ff] bg-white px-3 text-[10px] font-bold text-[#0758d5] transition hover:bg-[#0758d5] hover:text-white sm:text-[11px]" data-testid={`link-profile-${item.pro.profileId}`}>Voir le profil <ArrowRight size={14}/></Link>
-        </div>
+        <Link href={`/professionnels/${item.pro.profileId}`} className="ml-auto inline-flex min-h-8 items-center justify-center gap-2 rounded-full border border-[#2678ff] bg-white px-3 text-[10px] font-bold text-[#0758d5] transition hover:bg-[#0758d5] hover:text-white sm:text-[11px]" data-testid={`link-profile-${item.pro.profileId}`}>Voir le profil <ArrowRight size={14}/></Link>
       </div>
     </div>
     <button onClick={onFavorite} aria-label={saved?'Retirer des favoris':'Ajouter aux favoris'} className={`absolute right-2.5 top-2.5 rounded-full p-1.5 transition ${saved?'text-[#e44962]':'text-[#58708f] hover:bg-[#f0f5fc] hover:text-[#e44962]'}`} data-testid={`button-favorite-${item.pro.profileId}`}><Heart size={20} fill={saved?'currentColor':'none'}/></button>
@@ -302,7 +301,7 @@ function ProfessionalPage({ params }: { params: { id: string } }) {
         <section className="rounded-2xl border border-[#e0e6e8] bg-white p-5 sm:p-7">
            <div className="flex flex-wrap items-start gap-4"><Avatar profile={profile} large/><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h1 className="font-serif text-2xl font-extrabold text-[#183451] sm:text-3xl">{profile.name}</h1><span className="rounded-full bg-[#eef3f5] px-2.5 py-1 text-[10px] font-bold text-[#526c7d]">Profil fictif · non vérifié</span></div><p className="mt-1 font-semibold text-[#a57934]">{pro.trade}</p><p className="mt-2 flex items-center gap-1 text-xs text-[#71808c]"><MapPin size={13}/>{profile.neighborhood} · intervient à {pro.serviceArea.join(', ')}</p></div><button onClick={()=>setData(prev=>({...prev,favorites:favorite?prev.favorites.filter(f=>f.professionalId!==pro.profileId):[...prev.favorites,{professionalId:pro.profileId}]}))} className="flex items-center gap-2 rounded-lg border border-[#e0e6e8] px-3 py-2 text-xs font-bold text-[#536a7c]"><Heart size={15} fill={favorite?'currentColor':'none'}/>{favorite?'Enregistré':'Enregistrer'}</button></div>
           <DemoNote>Statut de profil et éléments présentés à titre fictif. KaziGoma n’a effectué aucune vérification d’identité.</DemoNote>
-          <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3"><Metric label="Expérience" value={`${pro.experienceYears} ans`}/><Metric label="Tarif indicatif" value={pro.indicativeRate}/><Metric label="Disponibilité" value={pro.availability}/></div>
+          <div className="mt-6 grid grid-cols-2 gap-3"><Metric label="Expérience" value={`${pro.experienceYears} ans`}/><Metric label="Disponibilité" value={pro.availability}/></div>
           <h2 className="mt-7 font-serif text-lg font-bold text-[#183451]">À propos</h2><p className="mt-2 text-sm leading-6 text-[#596b79]">{pro.description}</p>
           <h2 className="mt-6 font-serif text-lg font-bold text-[#183451]">Compétences</h2><div className="mt-3 flex flex-wrap gap-2">{pro.skills.map(s=><span key={s} className="rounded-full bg-[#edf2f4] px-3 py-1.5 text-xs font-semibold text-[#425c70]">{s}</span>)}</div>
            <h2 className="mt-6 font-serif text-lg font-bold text-[#183451]">Zone d’intervention</h2><div className="mt-3 flex flex-wrap gap-2">{pro.serviceArea.map(a=><span key={a} className="flex items-center gap-1.5 rounded-lg border border-[#e3e8e9] px-3 py-2 text-xs text-[#566a79]"><MapPin size={13}/>{a}</span>)}</div>
@@ -510,8 +509,21 @@ function ProSpace() {
   const profile=data.profiles.find(p=>p.id===pro.profileId)!;
   const [saved,setSaved]=useState(false);
   const [portfolioMessage,setPortfolioMessage]=useState('');
+  const [photoMessage,setPhotoMessage]=useState('');
   const updateProfile=(field:keyof Profile,value:string)=>setData(prev=>({...prev,profiles:prev.profiles.map(p=>p.id===selected?{...p,[field]:value}:p)}));
   const updatePro=(field:keyof Professional,value:string|number|string[])=>setData(prev=>({...prev,professionals:prev.professionals.map(p=>p.profileId===selected?{...p,[field]:value}:p)}));
+  const uploadProfilePhoto=(file:File|null)=>{
+    if(!file)return;
+    if(!['image/jpeg','image/png','image/webp'].includes(file.type)||file.size>350_000){setPhotoMessage('Choisissez une image PNG, JPEG ou WebP de 350 Ko maximum.');return;}
+    const reader=new FileReader();
+    reader.onload=()=>{
+      if(typeof reader.result!=='string'){setPhotoMessage('Impossible de lire cette image. Réessayez avec un autre fichier.');return;}
+      updateProfile('avatar',reader.result);
+      setPhotoMessage('Photo de profil enregistrée dans ce navigateur.');
+    };
+    reader.onerror=()=>setPhotoMessage('Impossible de lire cette image. Réessayez avec un autre fichier.');
+    reader.readAsDataURL(file);
+  };
   const uploadPortfolio=(files:FileList|null)=>{
     if(!files?.length)return;
     const images=Array.from(files);
@@ -533,7 +545,8 @@ function ProSpace() {
     <div className="grid gap-5 lg:grid-cols-[1fr_1fr]">
       <section className="rounded-2xl border border-[#e0e6e8] bg-white p-5"><div className="flex items-center justify-between"><h2 className="font-serif text-xl font-bold text-[#183451]">Modifier un profil démo</h2><select value={selected} onChange={e=>setSelected(e.target.value)} className="max-w-[150px] rounded-lg border border-[#dfe5e8] bg-white px-2 py-2 text-xs">{data.profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></div>
         <div className="mt-4 flex items-center gap-3 border-b border-[#edf0f1] pb-4"><Avatar profile={profile}/><div><div className="font-bold text-[#24425c]">{profile.name}</div><div className="text-xs text-[#79858e]">{pro.trade} · profil fictif</div></div></div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2"><EditField label="Nom affiché" value={profile.name} onChange={v=>updateProfile('name',v)}/><EditField label="Métier" value={pro.trade} onChange={v=>updatePro('trade',v)}/><EditField label="Quartier" value={profile.neighborhood} onChange={v=>updateProfile('neighborhood',v)}/><EditField label="Tarif indicatif" value={pro.indicativeRate} onChange={v=>updatePro('indicativeRate',v)}/><label className="block text-xs font-bold text-[#586b7a]">Disponibilité<select value={pro.availability} onChange={e=>updatePro('availability',e.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] bg-white px-3 py-2.5 text-sm font-normal">{['Disponible aujourd’hui','Disponible demain','Cette semaine','Indisponible'].map(v=><option key={v}>{v}</option>)}</select></label><EditField label="Expérience (années)" value={String(pro.experienceYears)} onChange={v=>updatePro('experienceYears',Number(v)||0)}/></div>
+        <label className="mt-4 block text-xs font-bold text-[#586b7a]">Photo de profil<input type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>{uploadProfilePhoto(e.currentTarget.files?.[0]??null);e.currentTarget.value=''}} className="mt-1.5 block w-full rounded-lg border border-[#dfe5e8] px-3 py-2 text-xs font-normal"/></label><p aria-live="polite" className="mt-1 text-[10px] text-[#82909a]">PNG, JPEG ou WebP, 350 Ko maximum. Enregistrée uniquement dans ce navigateur. {photoMessage}</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2"><EditField label="Nom affiché" value={profile.name} onChange={v=>updateProfile('name',v)}/><EditField label="Métier" value={pro.trade} onChange={v=>updatePro('trade',v)}/><EditField label="Quartier" value={profile.neighborhood} onChange={v=>updateProfile('neighborhood',v)}/><label className="block text-xs font-bold text-[#586b7a]">Disponibilité<select value={pro.availability} onChange={e=>updatePro('availability',e.target.value)} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] bg-white px-3 py-2.5 text-sm font-normal">{['Disponible aujourd’hui','Disponible demain','Cette semaine','Indisponible'].map(v=><option key={v}>{v}</option>)}</select></label><EditField label="Expérience (années)" value={String(pro.experienceYears)} onChange={v=>updatePro('experienceYears',Number(v)||0)}/></div>
         <label className="mt-3 block text-xs font-bold text-[#586b7a]">Présentation<textarea value={pro.description} onChange={e=>updatePro('description',e.target.value)} rows={4} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-2.5 text-sm font-normal"/></label>
         <label className="mt-3 block text-xs font-bold text-[#586b7a]">Compétences <span className="font-normal text-[#89959d]">(séparées par des virgules)</span><input value={pro.skills.join(', ')} onChange={e=>updatePro('skills',e.target.value.split(',').map(x=>x.trim()).filter(Boolean))} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-2.5 text-sm font-normal"/></label>
         <label className="mt-3 block text-xs font-bold text-[#586b7a]">Zones d’intervention <span className="font-normal text-[#89959d]">(séparées par des virgules)</span><input value={pro.serviceArea.join(', ')} onChange={e=>updatePro('serviceArea',e.target.value.split(',').map(x=>x.trim()).filter(Boolean))} className="mt-1.5 w-full rounded-lg border border-[#dfe5e8] px-3 py-2.5 text-sm font-normal"/></label>
@@ -587,11 +600,11 @@ function AdminPage() {
 }
 
 function HowPage() {
-  const steps=[['01','Cherchez autour de vous','Choisissez un métier, un quartier et un rayon. Les profils sont classés selon des critères expliqués.'],['02','Comparez les profils','Consultez les compétences, les disponibilités, les tarifs indicatifs et les avis fictifs de cette démo.'],['03','Prenez contact','Décrivez le travail souhaité. Dans la démo, la demande reste enregistrée sur votre appareil.'],['04','Décidez ensemble','Échangez directement avec le professionnel pour confirmer le prix, le délai et les détails.']];
+  const steps=[['01','Cherchez autour de vous','Choisissez un métier, un quartier et un rayon. Les profils sont classés selon des critères expliqués.'],['02','Comparez les profils','Consultez les compétences, les disponibilités et les avis fictifs de cette démo.'],['03','Prenez contact','Décrivez le travail souhaité. Dans la démo, la demande reste enregistrée sur votre appareil.'],['04','Décidez ensemble','Échangez directement avec le professionnel pour confirmer le prix, le délai et les détails.']];
   return <div className="page-enter mx-auto max-w-[1050px] px-4 py-10 sm:px-7 sm:py-14"><PageTitle eyebrow="Simple, local, transparent" title="Des compétences proches. Un choix qui vous appartient." text="KaziGoma aide les habitants de Goma à découvrir les savoir-faire de leur quartier et les professionnels à faire connaître leur activité."/>
     <section className="rounded-2xl bg-[#183451] p-6 text-white sm:p-9"><div className="grid gap-7 sm:grid-cols-2">{steps.map(([n,title,text])=><div key={n} className="border-l border-[#f0bf62]/50 pl-4"><span className="text-xs font-extrabold tracking-widest text-[#f0bf62]">{n}</span><h2 className="mt-2 font-serif text-xl font-bold">{title}</h2><p className="mt-2 text-sm leading-6 text-[#cbd8e1]">{text}</p></div>)}</div></section>
     <div className="mt-8 grid gap-4 sm:grid-cols-2"><article className="rounded-xl border border-[#e0e6e8] bg-white p-5"><h3 className="font-serif text-lg font-bold text-[#183451]">Pour les habitants</h3><p className="mt-2 text-sm leading-6 text-[#687885]">Comparez plusieurs profils, consultez leur zone d’intervention et présentez votre besoin avant de prendre une décision.</p></article><article className="rounded-xl border border-[#e0e6e8] bg-white p-5"><h3 className="font-serif text-lg font-bold text-[#183451]">Pour les professionnels</h3><p className="mt-2 text-sm leading-6 text-[#687885]">Présentez vos services, votre expérience et les quartiers où vous intervenez. Un profil clair aide les clients à vous trouver.</p></article></div>
-    <div className="mt-5"><DemoNote>Cette version est une démonstration : profils, avis, tarifs, coordonnées, points de carte et statistiques sont fictifs. Aucun contrôle d’identité n’est effectué. Les modifications sont locales.</DemoNote></div>
+    <div className="mt-5"><DemoNote>Cette version est une démonstration : profils, avis, coordonnées, points de carte et statistiques sont fictifs. Aucun contrôle d’identité n’est effectué. Les modifications sont locales.</DemoNote></div>
     <Link href="/" className="mt-6 inline-flex items-center gap-2 rounded-lg bg-[#183451] px-5 py-3 text-sm font-bold text-white">Trouver un professionnel <ArrowRight size={15}/></Link>
   </div>;
 }
