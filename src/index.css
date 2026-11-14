@@ -368,8 +368,12 @@ body {
 
 /* Home hero */
 .home-hero-photo {
-  background-position: right center;
-  background-size: 180% auto;
+  position: relative;
+  overflow: hidden;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  box-shadow: 0 16px 28px rgba(13, 94, 189, 0.12);
 }
 
 .home-hero-photo > span {
@@ -378,13 +382,16 @@ body {
 
 @media (min-width: 640px) {
   .home-hero-photo {
-    background-size: 150% auto;
+    background-size: cover;
   }
 }
 
 @media (min-width: 1024px) {
   .home-hero-photo {
-    background-size: auto 100%;
+    position: absolute;
+    background-position: right center;
+    background-size: cover;
+    box-shadow: none;
   }
 }
 
@@ -399,9 +406,6 @@ body {
 .home-hero p {
   color: #263b5a;
   line-height: 1.65;
-}
-
-.home-hero-overlay {  4.2vw, 3.75rem); }
 }
 
 @media (min-width: 1024px) {
