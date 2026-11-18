@@ -5,6 +5,22 @@ sont configurées. Les comptes, fiches professionnelles, demandes, favoris et
 recherche publique utilisent les tables Supabase. La recherche n'affiche que
 des fiches professionnelles réellement enregistrées et validées.
 
+## Assistant de discussion KaziGoma
+
+L'assistant répond en langage naturel aux questions sur le site et tolère les
+fautes courantes. Il s'appuie sur une description des fonctionnalités KaziGoma
+et ne doit pas inventer de réponses sur les comptes ou les services. Les
+messages des visiteurs sont envoyés à l'API OpenAI depuis la fonction serveur
+`/api/chat` ; la clé n'est jamais intégrée au navigateur.
+
+Pour activer les réponses intelligentes, ajoutez `OPENAI_API_KEY` aux variables
+d'environnement du projet Vercel (Production, et Preview si nécessaire), avec
+une clé API OpenAI. Le modèle par défaut est `gpt-4.1-mini` ; la variable
+serveur facultative `OPENAI_CHAT_MODEL` permet de le changer. N'utilisez pas un
+préfixe `VITE_` pour ces variables. Configurez aussi une limite de dépenses
+dans le compte API OpenAI. Sans clé, le chatbot n'offre que des réponses de
+secours prédéfinies. Après modification des variables, redéployez le site.
+
 ## Préparer le projet Supabase
 
 1. Créez un projet Supabase.
