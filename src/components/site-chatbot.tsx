@@ -10,37 +10,62 @@ const suggestions = [
   'Comment contacter KaziGoma ?',
 ];
 
-function answerQuestion(question: string): string {
-  const text = question.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+function normalize(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
 
-  if (/bonjour|salut|bonsoir|coucou/.test(text)) {
-    return 'Bonjour ! Je peux vous aider à utiliser KaziGoma : trouver un professionnel, créer un compte ou inscrire une activité.';
+function editDistanceAtMostOne(first: string, second: string) {
+  if (Math.abs(first.length - second.length) > 1) return false;
+  let left = 0;
+  let right = 0;
+  let edits = 0;
+  while (left < first.length && right < second.length) {
+    if (first[left] === second[right]) { left += 1; right += 1; continue; }
+    edits += 1;
+    if (edits > 1) return false;
+    if (first.length > second.length) left += 1;
+    else if (second.length > first.length) right += 1;
+    else { left += 1; right += 1; }
   }
-  if (/contact|aide|equipe|email|mail|joindre|ecrire/.test(text)) {
-    return 'Pour joindre l’équipe KaziGoma, écrivez à bonjour@kazigoma.cd depuis la page Contact.';
+  return edits + (left < first.length || right < second.length ? 1 : 0) <= 1;
+}
+
+function hasIntent(text: string, terms: string[]) {
+  const words = text.split(' ');
+  return terms.some(term => {
+    if (text.includes(term)) return true;
+    return term.split(' ').some(target => target.length >= 5 && words.some(word => word.length >= 5 && editDistanceAtMostOne(word, target)));
+  });
+}
+
+function answerQuestion(question: string): string {
+  const text = normalize(question);
+  const greeting = /\b(bonjour|salut|bonsoir|coucou|hello|yo)\b/.test(text);
+  const questionOnlyGreeting = /^(bonjour|salut|bonsoir|coucou|hello|yo)( tout le monde)?$/.test(text);
+  const query = text.replace(/\b(bonjour|salut|bonsoir|coucou|hello|yo)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  if (questionOnlyGreeting) return 'Bonjour ! Que souhaitez-vous faire sur KaziGoma ? Je peux vous aider à trouver un professionnel, créer un compte ou inscrire votre activité.';
+
+  let answer: string;
+  if (hasIntent(query, ['mot de passe', 'oubli', 'connexion', 'connecter', 'login', 'ouvrir session'])) {
+    answer = 'Pour vous connecter, ouvrez « Se connecter » et saisissez votre adresse e-mail et votre mot de passe. Si vous l’avez oublié, choisissez « Mot de passe oublié ? ».';
+  } else if (hasIntent(query, ['inscrire', 'inscription', 'enregistrer', 'rejoindre', 'devenir professionnel', 'devenir prestataire', 'proposer mes services', 'ajouter mon activite', 'creer un compte professionnel', 'publier ma fiche'])) {
+    answer = 'Pour inscrire votre activité : 1) choisissez « Créer un compte » ; 2) sélectionnez « Un professionnel » ; 3) confirmez votre adresse e-mail ; 4) ouvrez votre espace professionnel et complétez votre fiche. Elle sera visible après validation par KaziGoma.';
+  } else if (hasIntent(query, ['contact', 'aide', 'equipe', 'email', 'mail', 'joindre', 'ecrire', 'parler a quelqu un'])) {
+    answer = 'Pour joindre l’équipe KaziGoma, écrivez à bonjour@kazigoma.cd depuis la page Contact.';
+  } else if (hasIntent(query, ['client', 'demande', 'besoin', 'commander', 'solliciter', 'service'])) {
+    answer = 'Avec un compte client, vous pouvez envoyer une demande à un professionnel et enregistrer des profils favoris. Vous pouvez aussi parcourir les profils publics sans compte.';
+  } else if (hasIntent(query, ['chercher', 'trouver', 'recherche', 'quartier', 'metier', 'profil', 'professionnel', 'disponible', 'artisan', 'ouvrier'])) {
+    answer = 'Sur l’accueil, cherchez par métier ou compétence, puis choisissez éventuellement un quartier. Ouvrez les profils pour comparer l’expérience, les compétences et les disponibilités.';
+  } else if (hasIntent(query, ['prix', 'tarif', 'cout', 'paiement', 'payer', 'combien'])) {
+    answer = 'KaziGoma met les habitants en relation avec les professionnels. Le prix et les détails du travail se conviennent directement avec le professionnel avant de confirmer.';
+  } else if (hasIntent(query, ['avis', 'note', 'evaluation', 'etoile'])) {
+    answer = 'Les avis sont affichés uniquement lorsqu’ils proviennent de prestations réelles.';
+  } else if (hasIntent(query, ['admin', 'supprimer', 'suppression', 'effacer mon compte'])) {
+    answer = 'Pour une suppression de compte ou une question d’administration, écrivez à bonjour@kazigoma.cd. L’équipe pourra vérifier votre demande.';
+  } else {
+    answer = 'Je peux vous aider pour les comptes, la recherche d’un professionnel, l’inscription d’une activité ou le contact avec KaziGoma. Pouvez-vous préciser ce que vous souhaitez faire ?';
   }
-  if (/mot de passe|oubli|recuper|connexion|connecter|login/.test(text)) {
-    return 'Ouvrez « Se connecter », saisissez votre adresse e-mail, puis choisissez « Mot de passe oublié ? » pour recevoir un lien de récupération. Vérifiez aussi vos courriers indésirables.';
-  }
-  if (/inscri|creer.*compte|compte.*pro|professionnel.*compte|activite/.test(text)) {
-    return 'Pour inscrire votre activité, choisissez « Créer un compte » puis « Un professionnel ». Après confirmation de votre adresse, ouvrez votre espace professionnel et complétez votre fiche. Elle doit être validée avant sa publication.';
-  }
-  if (/client|demande|besoin.*travail|solliciter|service/.test(text)) {
-    return 'Créez un compte client pour envoyer une demande à un professionnel. Vous pouvez aussi parcourir les profils publics sans compte, puis les contacter directement avec les coordonnées affichées.';
-  }
-  if (/chercher|trouver|recherche|quartier|metier|profil|professionnel|disponible/.test(text)) {
-    return 'Sur l’accueil, saisissez un métier ou une compétence, choisissez éventuellement un quartier et lancez la recherche. Ouvrez les profils pour comparer les compétences, l’expérience et les disponibilités.';
-  }
-  if (/prix|tarif|cout|paiement|payer/.test(text)) {
-    return 'KaziGoma met les habitants en relation avec des professionnels. Le prix et les détails de la prestation se discutent directement avec le professionnel avant de confirmer.';
-  }
-  if (/avis|note|evaluation|etoile/.test(text)) {
-    return 'KaziGoma affiche les avis uniquement lorsqu’ils proviennent de prestations réelles.';
-  }
-  if (/admin|supprimer.*compte|suppression/.test(text)) {
-    return 'Les questions liées à l’administration ou à la suppression d’un compte nécessitent l’aide de l’équipe KaziGoma. Écrivez à bonjour@kazigoma.cd.';
-  }
-  return 'Je peux répondre aux questions sur la recherche, les comptes, les profils professionnels et le fonctionnement de KaziGoma. Pour une autre demande, écrivez à bonjour@kazigoma.cd.';
+  return greeting ? `Bonjour ! ${answer}` : answer;
 }
 
 export function SiteChatbot() {
@@ -86,7 +111,7 @@ export function SiteChatbot() {
   };
 
   return <div className="fixed bottom-4 right-4 z-50 sm:bottom-6 sm:right-6">
-    {open && <section aria-label="Assistant KaziGoma" className="mb-3 flex h-[min(560px,calc(100dvh-110px))] w-[min(380px,calc(100vw-32px))] flex-col overflow-hidden rounded-2xl border border-[#dfe6ea] bg-white shadow-[0_20px_60px_rgba(16,56,94,.24)]">
+    {open && <section aria-label="Assistant KaziGoma" className="mb-3 flex h-[min(440px,calc(100dvh-120px))] w-[min(380px,calc(100vw-32px))] flex-col overflow-hidden rounded-2xl border border-[#dfe6ea] bg-white shadow-[0_20px_60px_rgba(16,56,94,.24)]">
       <header className="flex items-center justify-between bg-[#183451] px-4 py-3 text-white">
         <div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-[#f0bf62]"><Bot size={19}/></span><div><p className="text-sm font-extrabold">Assistant KaziGoma</p><p className="text-[11px] text-blue-100">Aide sur le fonctionnement du site</p></div></div>
         <button type="button" onClick={() => setOpen(false)} aria-label="Fermer l’assistant" className="rounded-lg p-2 text-white/80 hover:bg-white/10 hover:text-white"><X size={18}/></button>
