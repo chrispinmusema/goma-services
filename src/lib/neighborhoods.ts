@@ -1,1 +1,20 @@
-export const neighborhoods = ['Himbi', 'Katindo', 'Les Volcans', 'Mabanga', 'Birere', 'Kyeshero'];
+export const neighborhoods = [
+  'Himbi',
+  'Katindo',
+  'Les Volcans',
+  'Mapendo',
+  'Mikeno',
+  'Keshero',
+  'Lac Vert',
+  'Murara',
+  'Ndosho',
+  'Virunga',
+  'Bujovu',
+  'Mugunga',
+  'Kasika',
+  'Mabanga Nord',
+  'Mabanga Sud',
+  'Majengo',
+  'Kahembe',
+  'Katoyi',
+];

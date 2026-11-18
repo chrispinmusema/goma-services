@@ -34,7 +34,7 @@ stable
 security definer
 set search_path = ''
 as $$
-  select exists (
+  select exists (uko   
     select 1 from public.profiles
     where id = (select auth.uid()) and role = 'admin'
   );

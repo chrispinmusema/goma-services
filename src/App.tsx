@@ -9,6 +9,7 @@ import { Link, Route, Switch, useLocation, Router as WouterRouter } from 'wouter
 import { ArrowLeft, ArrowRight, BadgeCheck, Bookmark, CarFront, Check, ChevronDown, Clock3, Compass, Hammer, Heart, House, Info, Laptop, Link2, LogOut, MapPin, Menu, Navigation, Phone, Plus, Search, ShieldCheck, SlidersHorizontal, Smartphone, Star, Trash2, UserRound, Wrench, X, Zap } from 'lucide-react';
 import { neighborhoods } from './lib/neighborhoods';
 import { supabase } from './lib/supabase';
+import { SiteChatbot } from './components/site-chatbot';
 
 const client = new QueryClient();
 const navLinks = [['/', 'Accueil'], ['/fonctionnement', 'Comment ça marche'], ['/contact', 'Contact']];
@@ -80,7 +81,7 @@ function Shell({ children }: { children: ReactNode }) {
           <div><div className="font-sans text-[15px] font-extrabold leading-tight text-[#10385e] lg:text-[17px]">Kazi<span className="text-[#f3a817]">Goma</span></div><div className="text-[6px] font-semibold tracking-[.16em] text-[#7188a0]">LES TALENTS D’ICI</div></div>
         </Link>
         <nav className="hidden items-center gap-3 xl:flex">
-          {navLinks.map(([href,label]) => <Link key={href} href={href} className={href === '/' ? 'inline-flex items-center gap-2 pb-2 text-[12px] font-extrabold text-[#174572] transition-colors hover:text-[#0d5ebd]' : 'px-3 pb-2 pt-1 text-[12px] font-semibold text-[#24415e] transition-colors hover:text-[#b77c20]'}>{href === '/' && <House size={15} fill="currentColor"/>}{label}</Link>)}
+          {navLinks.map(([href,label]) => <Link key={href} href={href} className={href === '/' ? 'inline-flex items-center gap-2 pb-2 text-[12px] font-extrabold text-[#174572] transition-colors hover:text-[#0d5ebd]' : 'px-3 pb-2 pt-1 text-[12px] font-semibold text-[#24415e] transition-colors hover:text-[#0d5ebd]'}>{href === '/' && <House size={15} fill="currentColor"/>}{label}</Link>)}
         </nav>
         <div className="hidden items-center justify-self-end gap-2.5 xl:flex">
           {account ? <><Link href={account.role === 'professional' ? '/espace/pro' : account.role === 'admin' ? '/admin' : '/espace/client'} className="flex max-w-[220px] items-center gap-2 rounded-full border border-[#dbe9ff] bg-white px-3.5 py-2 text-left shadow-sm hover:bg-[#f7fbff]"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#eaf2fb] text-[#0d5ebd]"><UserRound size={15}/></span><span className="min-w-0"><span className="block truncate text-[11px] font-extrabold text-[#183451]">{account.name}</span><span className="block text-[10px] font-semibold text-[#0d5ebd]">Compte {roleLabel}</span></span></Link><button onClick={signOut} className="inline-flex items-center gap-2 rounded-full border border-[#e2e8ed] bg-white px-3.5 py-2.5 text-[11px] font-bold text-[#405268] transition hover:bg-[#f4f7f9]"><LogOut size={14}/>Se déconnecter</button></> : <><Link href="/connexion" className="inline-flex items-center gap-2 rounded-full border border-[#dbe9ff] bg-white px-4 py-2.5 text-[12px] font-bold text-[#11487f] shadow-[0_1px_0_rgba(13,94,189,0.08),0_3px_12px_rgba(13,94,189,0.05)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#f7fbff] hover:shadow-[0_1px_0_rgba(13,94,189,0.08),0_6px_18px_rgba(13,94,189,0.1)]"><Link2 size={15} className="text-[#0d5ebd]"/>Se connecter</Link>
@@ -113,6 +114,7 @@ function Shell({ children }: { children: ReactNode }) {
         <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm text-[#d5dfe6]"><Link href="/">Trouver un pro</Link><Link href="/fonctionnement">Fonctionnement</Link><Link href="/contact">Contact</Link></div>
       </div>
     </footer>}
+    <SiteChatbot />
   </div>;
 }
 
@@ -185,8 +187,10 @@ function LiveHomePage() {
         if (publicResults.length) {
           const { data: mediaRows, error: mediaError } = await supabase.from('professionals').select('profile_id, avatar_path, portfolio_paths').in('profile_id',publicResults.map(row=>row.profile_id));
           if (!active) return;
-          if (mediaError) setError(mediaError.message);
-          else setMediaByProfessional(Object.fromEntries((mediaRows??[]).map(row=>[row.profile_id,{avatar_path:row.avatar_path,portfolio_paths:row.portfolio_paths??[]}])));
+          // The public search result remains usable if optional media permissions
+          // have not yet been applied in Supabase. The SQL media setup grants
+          // anonymous reads for verified profiles' image paths.
+          if (!mediaError) setMediaByProfessional(Object.fromEntries((mediaRows??[]).map(row=>[row.profile_id,{avatar_path:row.avatar_path,portfolio_paths:row.portfolio_paths??[]}])));
         } else setMediaByProfessional({});
       }
       if (categoryError) setError(categoryError.message);
@@ -286,8 +290,7 @@ function LiveProfessionalPage({ params }: { params: { id: string } }) {
         if (found) {
           const { data: mediaRow, error: mediaError } = await supabase.from('professionals').select('avatar_path, portfolio_paths').eq('profile_id',params.id).maybeSingle();
           if (!active) return;
-          if (mediaError) setMessage(mediaError.message);
-          else if (mediaRow) setMedia({avatar_path:mediaRow.avatar_path,portfolio_paths:mediaRow.portfolio_paths??[]});
+          if (!mediaError && mediaRow) setMedia({avatar_path:mediaRow.avatar_path,portfolio_paths:mediaRow.portfolio_paths??[]});
         }
       }
       if (auth.user) {
