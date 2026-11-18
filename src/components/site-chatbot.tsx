@@ -45,6 +45,11 @@ function answerQuestion(question: string): string {
   const query = text.replace(/\b(bonjour|salut|bonsoir|coucou|hello|yo)\b/g, ' ').replace(/\s+/g, ' ').trim();
   if (questionOnlyGreeting) return 'Bonjour ! Que souhaitez-vous faire sur KaziGoma ? Je peux vous aider à trouver un professionnel, créer un compte ou inscrire votre activité.';
 
+  const aboutKaziGoma = hasIntent(query, ['kazigoma', 'site', 'plateforme', 'compte', 'profil', 'professionnel', 'activite', 'inscrire', 'inscription', 'client', 'demande', 'metier', 'quartier', 'disponible', 'recherche', 'avis', 'service', 'contact', 'accueil', 'connexion', 'mot de passe', 'fiche', 'artisan', 'plombier', 'electricien', 'macon', 'menuisier', 'peintre', 'mecanicien', 'couturier', 'coiffeur', 'photographe']);
+  if (!aboutKaziGoma) {
+    return greeting ? 'Bonjour ! Je peux vous aider uniquement pour KaziGoma : comptes, recherche de professionnels, inscription et fonctionnement du site.' : 'Je réponds seulement aux questions sur KaziGoma. Avez-vous besoin d’aide pour un compte, une recherche ou l’inscription d’une activité ?';
+  }
+
   let answer: string;
   if (hasIntent(query, ['mot de passe', 'oubli', 'connexion', 'connecter', 'login', 'ouvrir session'])) {
     answer = 'Pour vous connecter, ouvrez « Se connecter » et saisissez votre adresse e-mail et votre mot de passe. Si vous l’avez oublié, choisissez « Mot de passe oublié ? ».';
@@ -72,7 +77,7 @@ export function SiteChatbot() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: 'assistant', text: 'Bonjour ! Je suis l’assistant KaziGoma. Posez-moi une question sur le site.' },
+    { role: 'assistant', text: 'Bonjour ! Que souhaitez-vous savoir sur KaziGoma ?' },
   ]);
   const [busy, setBusy] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
@@ -81,28 +86,17 @@ export function SiteChatbot() {
     if (open) endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, open]);
 
-  const sendMessage = async (value: string) => {
+  const sendMessage = (value: string) => {
     const question = value.trim();
     if (!question || busy) return;
     setInput('');
     const conversation = [...messages, { role: 'user' as const, text: question }];
     setMessages(conversation);
     setBusy(true);
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: conversation.slice(-10).map(({ role, text }) => ({ role, content: text })) }),
-      });
-      const result = await response.json() as { answer?: unknown };
-      if (!response.ok || typeof result.answer !== 'string') throw new Error('Assistant unavailable');
-      setMessages(current => [...current, { role: 'assistant', text: result.answer as string }]);
-    } catch {
-      const answer = answerQuestion(question);
-      setMessages(current => [...current, { role: 'assistant', text: `Je n’arrive pas à joindre l’assistant intelligent. Voici une aide de base : ${answer}` }]);
-    } finally {
+    window.setTimeout(() => {
+      setMessages(current => [...current, { role: 'assistant', text: answerQuestion(question) }]);
       setBusy(false);
-    }
+    }, 180);
   };
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -122,7 +116,7 @@ export function SiteChatbot() {
         <div ref={endRef}/>
       </div>
       {messages.length === 1 && <div className="flex flex-wrap gap-2 border-t border-[#edf0f1] bg-white px-3 py-3">{suggestions.map(suggestion => <button key={suggestion} type="button" onClick={() => void sendMessage(suggestion)} className="rounded-full border border-[#dce6ed] px-3 py-2 text-left text-[11px] font-semibold text-[#31516d] hover:border-[#0d5ebd] hover:bg-[#f4f8fc]">{suggestion}</button>)}</div>}
-      <p className="bg-white px-3 pt-2 text-[10px] text-[#87939b]">Réponses par IA. Évitez de saisir des données personnelles.</p>
+      <p className="bg-white px-3 pt-2 text-[10px] text-[#87939b]">Assistant automatique · questions sur KaziGoma uniquement.</p>
       <form onSubmit={submit} className="flex items-center gap-2 border-t border-[#e8edef] bg-white p-3"><label className="sr-only" htmlFor="site-chat-message">Votre question sur KaziGoma</label><input id="site-chat-message" value={input} onChange={event => setInput(event.target.value)} maxLength={500} placeholder="Écrivez votre question…" className="min-w-0 flex-1 rounded-xl border border-[#dfe5e8] px-3 py-2.5 text-sm outline-none focus:border-[#0d5ebd]"/><button type="submit" disabled={!input.trim() || busy} aria-label="Envoyer" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#0d5ebd] text-white hover:bg-[#0b4fa7] disabled:cursor-not-allowed disabled:opacity-50"><Send size={16}/></button></form>
     </section>}
     <button type="button" onClick={() => setOpen(value => !value)} aria-expanded={open} aria-label={open ? 'Fermer le chatbot' : 'Ouvrir le chatbot KaziGoma'} className="ml-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#0d5ebd] text-white shadow-[0_8px_24px_rgba(13,94,189,.35)] transition hover:-translate-y-0.5 hover:bg-[#0b4fa7] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#f0bf62]/60">{open ? <X size={22}/> : <MessageCircle size={23}/>}</button>
