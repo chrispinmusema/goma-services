@@ -14,27 +14,32 @@ function normalize(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function editDistanceAtMostOne(first: string, second: string) {
-  if (Math.abs(first.length - second.length) > 1) return false;
-  let left = 0;
-  let right = 0;
-  let edits = 0;
-  while (left < first.length && right < second.length) {
-    if (first[left] === second[right]) { left += 1; right += 1; continue; }
-    edits += 1;
-    if (edits > 1) return false;
-    if (first.length > second.length) left += 1;
-    else if (second.length > first.length) right += 1;
-    else { left += 1; right += 1; }
+function editDistanceWithin(first: string, second: string, limit: number) {
+  if (Math.abs(first.length - second.length) > limit) return false;
+  let previous = Array.from({ length: second.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= first.length; row += 1) {
+    const current = [row];
+    let rowMinimum = row;
+    for (let column = 1; column <= second.length; column += 1) {
+      const cost = first[row - 1] === second[column - 1] ? 0 : 1;
+      current[column] = Math.min(current[column - 1] + 1, previous[column] + 1, previous[column - 1] + cost);
+      rowMinimum = Math.min(rowMinimum, current[column]);
+    }
+    if (rowMinimum > limit) return false;
+    previous = current;
   }
-  return edits + (left < first.length || right < second.length ? 1 : 0) <= 1;
+  return previous[second.length] <= limit;
 }
 
 function hasIntent(text: string, terms: string[]) {
   const words = text.split(' ');
   return terms.some(term => {
     if (text.includes(term)) return true;
-    return term.split(' ').some(target => target.length >= 5 && words.some(word => word.length >= 5 && editDistanceAtMostOne(word, target)));
+    return term.split(' ').some(target => target.length >= 5 && words.some(word => {
+      if (word.length < 5) return false;
+      const limit = Math.min(word.length, target.length) >= 8 ? 2 : 1;
+      return editDistanceWithin(word, target, limit);
+    }));
   });
 }
 
@@ -45,25 +50,29 @@ function answerQuestion(question: string): string {
   const query = text.replace(/\b(bonjour|salut|bonsoir|coucou|hello|yo)\b/g, ' ').replace(/\s+/g, ' ').trim();
   if (questionOnlyGreeting) return 'Bonjour ! Que souhaitez-vous faire sur KaziGoma ? Je peux vous aider à trouver un professionnel, créer un compte ou inscrire votre activité.';
 
-  const aboutKaziGoma = hasIntent(query, ['kazigoma', 'site', 'plateforme', 'compte', 'profil', 'professionnel', 'activite', 'inscrire', 'inscription', 'client', 'demande', 'metier', 'quartier', 'disponible', 'recherche', 'avis', 'service', 'contact', 'accueil', 'connexion', 'mot de passe', 'fiche', 'artisan', 'plombier', 'electricien', 'macon', 'menuisier', 'peintre', 'mecanicien', 'couturier', 'coiffeur', 'photographe']);
+  const aboutKaziGoma = hasIntent(query, ['kazigoma', 'site', 'plateforme', 'compte', 'profil', 'professionnel', 'prestataire', 'activite', 'inscrire', 'inscription', 'enregistrer', 'client', 'demande', 'metier', 'quartier', 'disponible', 'recherche', 'chercher', 'avis', 'service', 'contact', 'equipe', 'accueil', 'connexion', 'connecter', 'login', 'session', 'identifier', 'mot de passe', 'fiche', 'favori', 'artisan', 'plombier', 'electricien', 'macon', 'menuisier', 'peintre', 'mecanicien', 'couturier', 'coiffeur', 'photographe']);
   if (!aboutKaziGoma) {
     return greeting ? 'Bonjour ! Je peux vous aider uniquement pour KaziGoma : comptes, recherche de professionnels, inscription et fonctionnement du site.' : 'Je réponds seulement aux questions sur KaziGoma. Avez-vous besoin d’aide pour un compte, une recherche ou l’inscription d’une activité ?';
   }
 
   let answer: string;
-  if (hasIntent(query, ['mot de passe', 'oubli', 'connexion', 'connecter', 'login', 'ouvrir session'])) {
+  if (hasIntent(query, ['mot de passe', 'oubli', 'connexion', 'connecter', 'login', 'ouvrir session', 'acceder au compte', 'entrer dans mon compte', 'identifier', 'recuperer acces', 'sign in'])) {
     answer = 'Pour vous connecter, ouvrez « Se connecter » et saisissez votre adresse e-mail et votre mot de passe. Si vous l’avez oublié, choisissez « Mot de passe oublié ? ».';
-  } else if (hasIntent(query, ['inscrire', 'inscription', 'enregistrer', 'rejoindre', 'devenir professionnel', 'devenir prestataire', 'proposer mes services', 'ajouter mon activite', 'creer un compte professionnel', 'publier ma fiche'])) {
+  } else if (hasIntent(query, ['inscrire', 'inscription', 'enregistrer', 'enregistrement', 'rejoindre', 'adhesion', 'creer mon compte', 'ouvrir un compte', 'devenir professionnel', 'devenir prestataire', 'm inscrire', 'm enregistrer', 'proposer mes services', 'ajouter mon activite', 'creer mon activite', 'creer un compte professionnel', 'publier ma fiche', 'mettre mon activite en ligne'])) {
     answer = 'Pour inscrire votre activité : 1) choisissez « Créer un compte » ; 2) sélectionnez « Un professionnel » ; 3) confirmez votre adresse e-mail ; 4) ouvrez votre espace professionnel et complétez votre fiche. Elle sera visible après validation par KaziGoma.';
-  } else if (hasIntent(query, ['contact', 'aide', 'equipe', 'email', 'mail', 'joindre', 'ecrire', 'parler a quelqu un'])) {
+  } else if (hasIntent(query, ['comment ca marche', 'fonctionnement', 'utiliser le site', 'utiliser kazigoma', 'comment fonctionne'])) {
+    answer = 'KaziGoma aide les habitants à trouver un professionnel local : cherchez un métier, comparez les profils, puis contactez le professionnel. Les professionnels peuvent créer une fiche, publiée après validation.';
+  } else if (hasIntent(query, ['contact', 'aide', 'equipe', 'email', 'mail', 'joindre', 'ecrire', 'appeler', 'parler avec', 'parler a quelqu un', 'assistance', 'support'])) {
     answer = 'Pour joindre l’équipe KaziGoma, écrivez à bonjour@kazigoma.cd depuis la page Contact.';
-  } else if (hasIntent(query, ['client', 'demande', 'besoin', 'commander', 'solliciter', 'service'])) {
+  } else if (hasIntent(query, ['favori', 'favoris', 'sauvegarder un profil', 'enregistrer un professionnel'])) {
+    answer = 'Connectez-vous à votre compte client, puis utilisez le cœur sur un profil pour le retrouver dans vos favoris.';
+  } else if (hasIntent(query, ['client', 'demande', 'besoin', 'commander', 'solliciter', 'service', 'trouver quelqu un', 'chercher un artisan', 'mettre en relation'])) {
     answer = 'Avec un compte client, vous pouvez envoyer une demande à un professionnel et enregistrer des profils favoris. Vous pouvez aussi parcourir les profils publics sans compte.';
-  } else if (hasIntent(query, ['chercher', 'trouver', 'recherche', 'quartier', 'metier', 'profil', 'professionnel', 'disponible', 'artisan', 'ouvrier'])) {
+  } else if (hasIntent(query, ['chercher', 'trouver', 'recherche', 'quartier', 'metier', 'profil', 'professionnel', 'prestataire', 'disponible', 'artisan', 'ouvrier', 'depanneur', 'reparation', 'competence'])) {
     answer = 'Sur l’accueil, cherchez par métier ou compétence, puis choisissez éventuellement un quartier. Ouvrez les profils pour comparer l’expérience, les compétences et les disponibilités.';
   } else if (hasIntent(query, ['prix', 'tarif', 'cout', 'paiement', 'payer', 'combien'])) {
     answer = 'KaziGoma met les habitants en relation avec les professionnels. Le prix et les détails du travail se conviennent directement avec le professionnel avant de confirmer.';
-  } else if (hasIntent(query, ['avis', 'note', 'evaluation', 'etoile'])) {
+  } else if (hasIntent(query, ['avis', 'note', 'evaluation', 'etoile', 'temoignage', 'commentaire'])) {
     answer = 'Les avis sont affichés uniquement lorsqu’ils proviennent de prestations réelles.';
   } else if (hasIntent(query, ['admin', 'supprimer', 'suppression', 'effacer mon compte'])) {
     answer = 'Pour une suppression de compte ou une question d’administration, écrivez à bonjour@kazigoma.cd. L’équipe pourra vérifier votre demande.';
