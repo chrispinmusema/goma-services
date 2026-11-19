@@ -73,7 +73,7 @@ function Shell({ children }: { children: ReactNode }) {
     setLocation('/');
   };
   const roleLabel = account?.role === 'professional' ? 'Professionnel' : account?.role === 'admin' ? 'Administrateur' : account?.role === 'client' ? 'Client' : 'Compte';
-  return <div className="min-h-[100dvh] bg-[#f4f6f7] text-[#1d2e42]">
+  return <div className="flex min-h-[100dvh] flex-col bg-[#f4f6f7] text-[#1d2e42]">
     <header className="sticky top-0 z-30 border-b border-[#e0e6e9] bg-[#fbfcfc]/95 backdrop-blur">
       <div className="mx-auto grid h-[56px] max-w-[1690px] grid-cols-[1fr_auto] items-center px-4 sm:px-6 xl:h-[60px] xl:grid-cols-[1fr_auto_1fr] xl:px-[4.2%]">
         <Link href="/" className="group flex items-center gap-2 lg:gap-2.5" data-testid="link-brand">
@@ -107,7 +107,7 @@ function Shell({ children }: { children: ReactNode }) {
         </nav>
       </div>}
     </header>
-    <main>{children}</main>
+    <main className="flex-1">{children}</main>
     {location !== '/connexion' && location !== '/inscription' && <footer className="mt-16 bg-[#183451] text-white">
       <div className="mx-auto grid max-w-[1240px] gap-8 px-5 py-10 sm:grid-cols-[1fr_auto] sm:px-7">
         <div><div className="font-serif text-xl font-extrabold">Kazi<span className="text-[#f0bf62]">Goma</span></div><p className="mt-2 max-w-md text-sm leading-6 text-[#cad5df]">Les compétences de Goma, à portée de main. Une mise en relation locale.</p></div>
